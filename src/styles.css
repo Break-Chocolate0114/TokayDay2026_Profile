@@ -1,0 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Darumadrop+One&family=Kiwi+Maru:wght@400;500;700&family=Yomogi&display=swap');
+
+:root {
+  font-family: 'Kiwi Maru', 'Hiragino Maru Gothic ProN', 'Yu Gothic', sans-serif;
+  color: #5e3652;
+  background: #ffe8ef;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button { font: inherit; }
+
+.app-shell {
+  min-height: 100vh;
+  overflow: hidden;
+  padding: 22px max(16px, calc((100vw - 760px) / 2));
+  background-color: #fffaf2;
+  background-image:
+    linear-gradient(90deg, transparent 0 43px, rgba(255, 128, 167, .24) 43px 45px, transparent 45px),
+    repeating-linear-gradient(0deg, transparent 0 29px, rgba(141, 195, 225, .32) 29px 30px);
+}
+
+.hero { position: relative; text-align: center; padding: 20px 5px 10px; }
+.hero::before, .hero::after { content: '✦'; position: absolute; color: #f8b71e; font-size: 28px; transform: rotate(18deg); }
+.hero::before { left: 6%; top: 40px; }.hero::after { right: 8%; top: 90px; color: #61bdd7; }
+.event-label { margin: 0 0 3px; color: #e2598a; font-family: 'Yomogi', cursive; font-size: .78rem; font-weight: 700; letter-spacing: .08em; }
+h1 { margin: 0; color: #e94d89; font-family: 'Darumadrop One', 'Kiwi Maru', sans-serif; font-size: clamp(2.2rem, 9vw, 3.5rem); line-height: .98; letter-spacing: .05em; text-shadow: 2px 2px 0 #fff, 4px 4px 0 #f5bbd1; transform: rotate(-2deg); }
+h1 span { color: #ff81ac; font-size: .76em; }
+.hero-copy { margin: 13px 0 10px; color: #915170; font-family: 'Yomogi', cursive; font-size: 1.07rem; font-weight: bold; }
+
+.progress-card { width: min(310px, 92%); margin: auto; padding: 9px 16px 11px; border: 2px solid #f4afc4; border-radius: 7px 17px 9px 15px; background: #fffdf4; box-shadow: 3px 4px 0 rgba(219, 117, 151, .22); transform: rotate(.7deg); }
+.progress-card > span { color: #cc6e91; font-size: .75rem; font-weight: 700; }
+.progress-card strong { display: block; color: #ec5289; font-family: 'Darumadrop One', sans-serif; font-size: 1.62rem; line-height: 1.2; }
+.progress-card small { font-family: 'Kiwi Maru', sans-serif; font-size: .76rem; color: #8a5b70; }
+.progress-track { height: 9px; overflow: hidden; border: 1px solid #f1c6d3; border-radius: 20px; background: #f7e2e8; }
+.progress-track span { display: block; height: 100%; min-width: 0; border-radius: inherit; background: repeating-linear-gradient(45deg, #ff6f9e 0 8px, #ff90b5 8px 16px); transition: width .35s ease; }
+
+.scanner-panel { margin: 14px auto 25px; max-width: 610px; padding: 14px; border: 2px dashed #ed90b0; border-radius: 16px; background: rgba(255, 251, 244, .9); box-shadow: 3px 4px 0 rgba(236, 125, 164, .17); }
+.scanner-copy { display: flex; align-items: center; gap: 8px; margin-bottom: 11px; }.scanner-copy p { margin: 0; flex: 1; font-size: .82rem; font-weight: 700; line-height: 1.45; }.heart { color: #ff5e96; font-size: 1.5rem; }
+.scan-button { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 13px 18px; border: 0; border-radius: 30px 25px 31px 23px; color: #fff; background: linear-gradient(110deg, #f65590, #ff88b0); box-shadow: 0 4px 0 #cf4a78, 0 8px 13px rgba(205, 62, 112, .22); cursor: pointer; font-size: 1rem; font-weight: 700; transition: transform .15s, box-shadow .15s; }
+.scan-button:hover:not(:disabled) { transform: translateY(-2px) rotate(-.3deg); }.scan-button:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 #cf4a78; }.scan-button:disabled { opacity: .58; cursor: wait; }.scan-button span { font-size: 1.6em; line-height: .7; }.support-note { margin: 10px 2px 0; color: #a47281; font-size: .71rem; }
+
+.book-section { position: relative; max-width: 720px; margin: auto; padding: 19px 13px 28px 31px; border: 1px solid #f2c5d1; border-radius: 5px 17px 12px 5px; background: rgba(255, 253, 247, .88); box-shadow: 4px 5px 0 rgba(235, 137, 165, .22); }
+.book-section::before { content: ''; position: absolute; top: 0; bottom: 0; left: 11px; border-left: 2px solid rgba(250, 140, 171, .33); }.section-heading { display: flex; align-items: center; justify-content: center; gap: 9px; color: #ef6c9a; }.section-heading h2 { margin: 0; font-family: 'Darumadrop One', sans-serif; font-size: 1.45rem; letter-spacing: .06em; }.section-heading span { color: #f6b526; }
+.all-open-banner { margin: 14px 3px 7px; padding: 7px 9px; border-radius: 8px; color: #9b5571; background: #ffe1eb; text-align: center; font-size: .78rem; font-weight: 700; }.status-message, .error-message { margin: 28px 8px; text-align: center; }.error-message { color: #be315e; font-size: .86rem; }
+
+.generation-section { margin-top: 23px; }.generation-section h2 { display: inline-block; margin: 0 0 12px -4px; padding: 5px 14px 5px 9px; border-radius: 2px 12px 12px 2px; color: #fff; background: #ed81a6; box-shadow: 2px 2px 0 #d6648d; font-size: 1.03rem; transform: rotate(-1deg); }.generation-section h2 span { margin-right: 5px; color: #fff3a8; }.mentor-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(102px, 1fr)); gap: 15px 9px; }
+.mentor-card { min-width: 0; padding: 0; border: 0; color: inherit; background: transparent; text-align: center; }.mentor-card.is-unlocked { cursor: pointer; }.mentor-card.is-unlocked:hover .avatar-frame { transform: rotate(3deg) translateY(-3px); }.mentor-card:disabled { cursor: not-allowed; }.avatar-frame { position: relative; display: grid; width: min(88px, 100%); aspect-ratio: 1; place-items: center; overflow: hidden; margin: auto; border: 4px solid #fff; border-radius: 49% 51% 46% 54% / 55% 45% 55% 45%; background: linear-gradient(135deg, #ffd3e1, #9bd7e4); box-shadow: 2px 3px 0 #eea3b9; transition: transform .18s ease, filter .18s; }.avatar-frame img { width: 100%; height: 100%; object-fit: cover; }.avatar-fallback { color: #fff; font-family: 'Darumadrop One'; font-size: 2rem; }.is-locked .avatar-frame { filter: grayscale(1) contrast(.72); background: #b6b6bd; }.is-locked .avatar-frame img { opacity: .6; }.lock-mark { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(255,255,255,.94); font-size: 2.15rem; font-weight: bold; text-shadow: 1px 2px 2px #777; }.mentor-name { display: block; overflow: hidden; margin-top: 6px; color: #70495c; font-size: .77rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }.mentor-status { display: inline-block; margin-top: 2px; padding: 1px 5px; border-radius: 5px; color: #ab7c8e; background: #eee4e7; font-family: 'Yomogi'; font-size: .63rem; font-weight: bold; }.is-unlocked .mentor-status { color: #d7497e; background: #ffe0ea; }
+
+footer { padding: 24px 0 8px; color: #a87c8c; font-family: 'Yomogi', cursive; font-size: .78rem; text-align: center; }.modal-backdrop { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 18px; background: rgba(91, 45, 65, .5); backdrop-filter: blur(2px); }.profile-modal { position: relative; width: min(470px, 100%); max-height: 92vh; overflow: auto; padding: 24px 24px 20px; border: 4px solid #fff; border-radius: 18px 31px 18px 27px; background: #fffaf4; box-shadow: 5px 8px 0 #d36f92; text-align: center; }.modal-kicker { margin: 0; color: #ed6d9d; font-family: 'Yomogi'; font-weight: bold; letter-spacing: .1em; }.profile-modal h2 { margin: 3px 40px 0; color: #dc4c82; font-family: 'Darumadrop One'; font-size: 1.95rem; }.modal-generation { margin: 0 0 13px; color: #936073; font-size: .85rem; }.profile-image { display: block; width: 100%; max-height: 58vh; object-fit: contain; border: 2px solid #f4b7ca; border-radius: 8px 18px 9px 17px; background: #fde8ef; }.modal-close { position: absolute; top: 8px; right: 10px; width: 34px; height: 34px; border: 0; border-radius: 50%; color: #fff; background: #ec7ea5; cursor: pointer; font-size: 1.45rem; line-height: 1; }.close-button { margin-top: 16px; padding: 8px 35px; border: 0; border-radius: 20px; color: #fff; background: #ec6f9d; box-shadow: 0 3px 0 #cb4e79; cursor: pointer; font-weight: 700; }
+
+@media (min-width: 600px) { .scanner-panel { display: grid; grid-template-columns: 1fr auto; gap: 8px 18px; align-items: center; padding: 16px 19px; }.scanner-copy { margin: 0; }.scan-button { width: auto; min-width: 195px; }.support-note { grid-column: 1 / -1; }.book-section { padding: 24px 21px 32px 43px; }.mentor-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 19px 15px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }

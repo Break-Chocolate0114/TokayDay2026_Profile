@@ -1,0 +1,22 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 参加者のブラウザからは、イベントで公開するプロフィールだけを読めるようにします。
+    match /mentors/{mentorId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // true にするとアプリ上の全プロフィールが解放されます。
+    match /appConfig/settings {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // 他のコレクションは公開しません。
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
