@@ -37,7 +37,7 @@ export async function registerOtherDevice(uid: string): Promise<DeviceSetup> {
 }
 
 /**
- * メンター本人が自分のQRを登録する唯一のクライアント書き込みです。
+ * メンター本人が手元の未使用QRを初回登録する唯一のクライアント書き込みです。
  * Firestore ルールは、この3ドキュメントが同じバッチで作られることを検証します。
  */
 export async function registerMentorQr(uid: string, mentorId: string, qrId: string): Promise<DeviceSetup> {

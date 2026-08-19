@@ -102,7 +102,7 @@ export default function App() {
   const readQrForRegistration = useCallback(async (rawValue: string) => {
     const qrId = parseQrId(rawValue)
     const mentor = mentors.find((item) => item.id === pendingMentorId)
-    if (!qrId) return { ok: false, message: 'イベント用QRではありません。自分に配られたQRを読み取ってください。' }
+    if (!qrId) return { ok: false, message: 'イベント用QRではありません。手元のイベント用QRを読み取ってください。' }
     if (!uid || !mentor || !pendingMentorId) return { ok: false, message: '登録する名前を確認できませんでした。最初からやり直してください。' }
 
     try {
@@ -135,8 +135,8 @@ export default function App() {
 
   const scannerProps = scannerMode === 'register'
     ? {
-        title: '自分のQRを登録',
-        description: 'あなたに配られたイベント用QRを枠に合わせてね。',
+        title: 'QRを初回登録',
+        description: '手元のイベント用QRを枠に合わせてね。どの配布番号でも使えます。',
         onRead: readQrForRegistration,
       }
     : scannerMode === 'collect'
@@ -190,7 +190,7 @@ export default function App() {
 
       <footer>Made with ♡ for 東海の日</footer>
       <ProfileModal mentor={selectedMentor} onClose={() => setSelectedMentor(null)} />
-      {!isLoading && !loadError && !deviceSetup && (
+      {!isLoading && !loadError && !deviceSetup && !scannerMode && (
         <DeviceSetupModal
           mentors={mentors}
           isWorking={isSettingUp}

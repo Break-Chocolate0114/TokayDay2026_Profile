@@ -24,7 +24,7 @@ export default function DeviceSetupModal({ mentors, isWorking, message, onRegist
       <section className="setup-modal" role="dialog" aria-modal="true" aria-labelledby="setup-title">
         <p className="modal-kicker">FIRST SETUP</p>
         <h2 id="setup-title">このスマホを使う人は？</h2>
-        <p>メンター本人は名前を選んでから、自分に配られたQRを1回だけ登録してね。</p>
+        <p>メンター本人は名前を選んでから、手元のイベント用QRを1回だけ登録してね。</p>
         <label className="select-label" htmlFor="owner-select">名前</label>
         <select id="owner-select" value={selection} onChange={(event) => setSelection(event.target.value)} disabled={isWorking}>
           <option value="">選んでね</option>
@@ -33,9 +33,9 @@ export default function DeviceSetupModal({ mentors, isWorking, message, onRegist
         </select>
         {message && <p className="setup-message" role="alert">{message}</p>}
         <button className="scan-button" type="button" disabled={!selection || isWorking} onClick={proceed}>
-          {isWorking ? '登録しています…' : isOther ? 'この端末で始める' : '自分のQRを登録する'}
+          {isWorking ? '登録しています…' : isOther ? 'この端末で始める' : 'QRを初回登録する'}
         </button>
-        {!isOther && selection && <p className="support-note">※ 次の画面で、選んだ本人のQRコードを読み取ります。</p>}
+        {!isOther && selection && <p className="support-note">※ 次の画面で、手元の任意のイベント用QRを読み取ります。</p>}
       </section>
     </div>
   )

@@ -17,11 +17,10 @@ service cloud.firestore {
     }
 
     // qrInventory はクライアントから読めません。QRに印刷されたランダムIDを知る人だけが
-    // ルール経由で有効性を満たせます。
-    function qrIsAvailable(qrId, mentorId) {
+    // 未登録の共通QRを初回登録に使えます。
+    function qrIsAvailable(qrId) {
       return exists(/databases/$(database)/documents/qrInventory/$(qrId))
         && get(/databases/$(database)/documents/qrInventory/$(qrId)).data.active == true
-        && get(/databases/$(database)/documents/qrInventory/$(qrId)).data.mentorId == mentorId
         && !exists(/databases/$(database)/documents/qrCodes/$(qrId));
     }
 
@@ -70,7 +69,7 @@ service cloud.firestore {
         && request.resource.data.registeredByUid == request.auth.uid
         && request.resource.data.registeredAt == request.time
         && mentorExists(request.resource.data.mentorId)
-        && qrIsAvailable(qrId, request.resource.data.mentorId)
+        && qrIsAvailable(qrId)
         && pendingMentorDevice(request.auth.uid, request.resource.data.mentorId, qrId)
         && pendingMentorBinding(request.auth.uid, request.resource.data.mentorId, qrId);
       allow update, delete: if false;
@@ -87,7 +86,7 @@ service cloud.firestore {
         && request.resource.data.registeredAt == request.time
         && mentorExists(mentorId)
         && !exists(/databases/$(database)/documents/mentorQrBindings/$(mentorId))
-        && qrIsAvailable(request.resource.data.qrId, mentorId)
+        && qrIsAvailable(request.resource.data.qrId)
         && pendingMentorDevice(request.auth.uid, mentorId, request.resource.data.qrId)
         && pendingQrCode(request.auth.uid, mentorId, request.resource.data.qrId);
       allow update, delete: if false;
@@ -112,7 +111,7 @@ service cloud.firestore {
             && request.resource.data.qrId is string
             && request.resource.data.createdAt == request.time
             && mentorExists(request.resource.data.mentorId)
-            && qrIsAvailable(request.resource.data.qrId, request.resource.data.mentorId)
+            && qrIsAvailable(request.resource.data.qrId)
             && pendingQrCode(request.auth.uid, request.resource.data.mentorId, request.resource.data.qrId)
             && pendingMentorBinding(request.auth.uid, request.resource.data.mentorId, request.resource.data.qrId)
           )

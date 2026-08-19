@@ -9,9 +9,6 @@ import { FieldValue, getFirestore } from 'firebase-admin/firestore'
 
 const QR_PREFIX = 'TOKAI2026:1:'
 const REQUIRED_COLUMNS = ['mentorId', 'name', 'generation', 'imageUrl']
-const HEADER_ALIASES = {
-  'qrId（空欄で自動発行）': 'qrId',
-}
 
 function usage() {
   return [
@@ -44,22 +41,16 @@ function toText(value) {
 }
 
 function normalizeHeader(value) {
-  const header = toText(value).replace(/^\uFEFF/, '')
-  return HEADER_ALIASES[header] ?? header
+  return toText(value).replace(/^\uFEFF/, '')
 }
 
 function createQrId() {
   return randomBytes(24).toString('base64url')
 }
 
-function isValidQrId(value) {
-  return /^[A-Za-z0-9_-]{16,80}$/.test(value)
-}
-
 function validateRows(rows) {
   const errors = []
   const ids = new Set()
-  const qrIds = new Set()
 
   for (const row of rows) {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(row.mentorId)) errors.push(`${row.rowNumber}行目: mentorId は半角英数字・ハイフン・アンダースコアで入力してください。`)
@@ -73,9 +64,6 @@ function validateRows(rows) {
     }
     if (ids.has(row.mentorId)) errors.push(`${row.rowNumber}行目: mentorId「${row.mentorId}」が重複しています。`)
     ids.add(row.mentorId)
-    if (row.qrId && !isValidQrId(row.qrId)) errors.push(`${row.rowNumber}行目: qrId の形式が正しくありません。`)
-    if (row.qrId && qrIds.has(row.qrId)) errors.push(`${row.rowNumber}行目: qrId が重複しています。`)
-    if (row.qrId) qrIds.add(row.qrId)
   }
   return errors
 }
@@ -118,7 +106,6 @@ async function readMentors(inputPath) {
       name: record.name,
       generation: record.generation,
       imageUrl: record.imageUrl,
-      qrId: record.qrId || '',
     })
   }
 
@@ -134,44 +121,22 @@ function initializeAdmin() {
   return getFirestore(app)
 }
 
-async function enrichWithExistingBindings(rows, database) {
-  return Promise.all(rows.map(async (row) => {
-    const binding = await database.doc(`mentorQrBindings/${row.mentorId}`).get()
-    const boundQrId = binding.data()?.qrId
-    if (typeof boundQrId === 'string') {
-      if (row.qrId && row.qrId !== boundQrId) {
-        throw new Error(`${row.rowNumber}行目: ${row.mentorId} はすでに別のQRへ登録済みです。変更する場合は先に --unassign を実行してください。`)
-      }
-      return { ...row, qrId: boundQrId }
-    }
-
-    const inventory = await database.collection('qrInventory').where('mentorId', '==', row.mentorId).get()
-    const activeQrIds = inventory.docs
-      .filter((snapshot) => snapshot.data().active === true)
-      .map((snapshot) => snapshot.id)
-
-    if (row.qrId && activeQrIds.length > 0 && !activeQrIds.includes(row.qrId)) {
-      throw new Error(`${row.rowNumber}行目: ${row.mentorId} にはすでに別の未登録QRがあります。QRを変更する場合は、管理者が既存QRを無効化してから実行してください。`)
-    }
-    if (!row.qrId && activeQrIds.length === 1) return { ...row, qrId: activeQrIds[0] }
-    if (!row.qrId && activeQrIds.length > 1) {
-      throw new Error(`${row.rowNumber}行目: ${row.mentorId} には複数の未登録QRがあります。qrId列に使うQRの値を入力してください。`)
-    }
-
-    return { ...row, qrId: row.qrId || createQrId() }
-  }))
+async function resolveQrInventory(mentorCount, database) {
+  const inventory = await database.collection('qrInventory').where('active', '==', true).get()
+  const activeQrIds = inventory.docs.map((snapshot) => snapshot.id).sort()
+  const needed = Math.max(0, mentorCount - activeQrIds.length)
+  const newQrIds = Array.from({ length: needed }, createQrId)
+  return [...activeQrIds, ...newQrIds]
 }
 
-async function writeQrOutput(rows, outputDir) {
+async function writeQrOutput(qrIds, outputDir) {
   const qrDir = path.join(outputDir, 'qr-images')
   await fs.mkdir(qrDir, { recursive: true })
 
   const workbook = new ExcelJS.Workbook()
   const list = workbook.addWorksheet('QR一覧')
   list.columns = [
-    { header: 'mentorId', key: 'mentorId', width: 20 },
-    { header: 'name', key: 'name', width: 18 },
-    { header: 'generation', key: 'generation', width: 14 },
+    { header: '配布番号', key: 'number', width: 12 },
     { header: 'qrId', key: 'qrId', width: 38 },
     { header: 'QR文字列', key: 'payload', width: 52 },
     { header: 'PNGファイル', key: 'pngPath', width: 42 },
@@ -180,20 +145,21 @@ async function writeQrOutput(rows, outputDir) {
   list.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE85B91' } }
   list.views = [{ state: 'frozen', ySplit: 1 }]
 
-  for (const row of rows) {
-    const payload = `${QR_PREFIX}${row.qrId}`
-    const pngPath = path.join(qrDir, `${row.mentorId}.png`)
+  for (const [index, qrId] of qrIds.entries()) {
+    const number = String(index + 1).padStart(3, '0')
+    const payload = `${QR_PREFIX}${qrId}`
+    const pngPath = path.join(qrDir, `qr-${number}.png`)
     await QRCode.toFile(pngPath, payload, { width: 600, margin: 2, errorCorrectionLevel: 'M' })
-    list.addRow({ ...row, payload, pngPath: path.relative(outputDir, pngPath) })
+    list.addRow({ number, qrId, payload, pngPath: path.relative(outputDir, pngPath) })
   }
-  list.autoFilter = 'A1:F1'
+  list.autoFilter = 'A1:D1'
 
   const guide = workbook.addWorksheet('使い方')
   guide.getColumn(1).width = 105
   guide.getCell('A1').value = 'イベントQRコードの使い方'
   guide.getCell('A1').font = { bold: true, size: 16, color: { argb: 'FFE85B91' } }
-  guide.getCell('A3').value = 'QR一覧シートのPNGを、対応するメンター本人へ1枚ずつ配布してください。メンター本人はアプリ初回起動時に自分の名前を選び、自分のQRを読み取って登録します。'
-  guide.getCell('A4').value = 'qrIdを変更すると、すでに登録されたQRは使えなくなります。登録済みメンターを変更する場合は、先に管理コマンドの --unassign を使ってください。'
+  guide.getCell('A3').value = 'QR一覧シートのPNGは、メンターへランダムに配布できます。メンター本人はアプリ初回起動時に自分の名前を選び、手元の任意のQRを読み取って登録します。'
+  guide.getCell('A4').value = 'QRとメンターの関係は初回登録時に一度だけ作られます。配布番号・PNGファイル名は管理用の目印で、特定のメンターを意味しません。'
   guide.getCell('A3:A4').alignment = { wrapText: true, vertical: 'top' }
   guide.getRow(3).height = 48
   guide.getRow(4).height = 48
@@ -203,7 +169,7 @@ async function writeQrOutput(rows, outputDir) {
   return outputPath
 }
 
-async function applyRows(rows, database) {
+async function applyRows(rows, qrIds, database) {
   const config = await database.doc('appConfig/settings').get()
   const operations = [
     ...(config.exists ? [] : [{
@@ -211,18 +177,21 @@ async function applyRows(rows, database) {
       data: { isAllOpen: false },
       merge: false,
     }]),
-    ...rows.flatMap((row) => [
+    ...rows.map((row) => (
       {
         path: `mentors/${row.mentorId}`,
         data: { name: row.name, generation: row.generation, imageUrl: row.imageUrl },
         merge: false,
-      },
+      }
+    )),
+    ...qrIds.map((qrId) => (
       {
-        path: `qrInventory/${row.qrId}`,
-        data: { active: true, mentorId: row.mentorId, issuedAt: FieldValue.serverTimestamp() },
-        merge: true,
-      },
-    ]),
+        path: `qrInventory/${qrId}`,
+        data: { active: true, issuedAt: FieldValue.serverTimestamp() },
+        // 旧方式の mentorId を消し、未割当の共通QRへ移行する。
+        merge: false,
+      }
+    )),
   ]
 
   for (let index = 0; index < operations.length; index += 400) {
@@ -273,10 +242,10 @@ async function main() {
   }
 
   const database = initializeAdmin()
-  const rows = await enrichWithExistingBindings(rawRows, database)
-  await applyRows(rows, database)
-  const outputPath = await writeQrOutput(rows, options.output)
-  console.log(`反映完了: mentors ${rows.length}件、qrInventory ${rows.length}件、appConfig/settings`)
+  const qrIds = await resolveQrInventory(rawRows.length, database)
+  await applyRows(rawRows, qrIds, database)
+  const outputPath = await writeQrOutput(qrIds, options.output)
+  console.log(`反映完了: mentors ${rawRows.length}件、qrInventory ${qrIds.length}件、appConfig/settings`)
   console.log(`QR出力: ${outputPath}`)
 }
 

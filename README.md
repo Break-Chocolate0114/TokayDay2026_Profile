@@ -21,8 +21,8 @@
 
 1. メンター本人がプロフィール帳を初めて開きます。
 2. 自分の名前を選択します。
-3. 自分に配られたイベントQRをカメラで読み取ります。
-4. Firestoreに「このQRはこのメンターのもの」という関係が一度だけ作成されます。
+3. 手元にランダム配布されたイベントQRをカメラで読み取ります。
+4. Firestoreに「このQRは、このメンターのもの」という関係が一度だけ作成されます。
 
 `その他` を選ぶと、QRの所有者登録はせず、収集機能だけを使う端末として初期設定されます。
 
@@ -45,7 +45,6 @@ mentors/{mentorId}                 # 管理者がExcelから作成
 
 qrInventory/{qrId}                 # 管理者が事前発行。ブラウザから読めない
   active: true
-  mentorId
   issuedAt
 
 qrCodes/{qrId}                     # メンター本人の初回登録で作成
@@ -88,7 +87,12 @@ FirestoreはスキーマをConsoleで1件ずつ定義する必要はありませ
 
 ### Firestoreルールの自動反映を設定する
 
-GitHub Actionsからルールを反映するため、Google Cloudの **IAMと管理 > サービスアカウント** でデプロイ専用のサービスアカウントを作成し、プロジェクトのIAMで **Firebase Rules Admin**（`roles/firebaserules.admin`）を付与します。作成したJSON鍵の内容を、GitHubの **Settings > Secrets and variables > Actions > Secrets** に `FIREBASE_SERVICE_ACCOUNT_JSON` として登録してください。
+GitHub Actionsからルールを反映するため、Google Cloudの **IAMと管理 > サービスアカウント** でデプロイ専用のサービスアカウントを作成し、プロジェクトのIAMで次の2つのロールを付与します。
+
+- **Firebase Rules Admin**（`roles/firebaserules.admin`）— Firestoreルールを反映する権限
+- **Service Usage Viewer**（`roles/serviceusage.serviceUsageViewer`）— Firebase CLIがFirestore APIの有効状態を確認する権限
+
+作成したJSON鍵の内容を、GitHubの **Settings > Secrets and variables > Actions > Secrets** に `FIREBASE_SERVICE_ACCOUNT_JSON` として登録してください。
 
 JSON鍵は長期認証情報です。リポジトリやVariablesではなく、必ずSecretへ登録します。`.gitignore` でも除外済みです。
 
@@ -112,8 +116,6 @@ JSON鍵は長期認証情報です。リポジトリやVariablesではなく、�
 | `name` | はい | 表示名 |
 | `generation` | はい | 例: `OB・OG`、`18期` |
 | `imageUrl` | はい | HTTPSのプロフィール画像URL |
-| `qrId` | いいえ | 初回は空欄でよい。再取込時は出力された値を使う |
-
 メンターのデータ行は見出し直後から連続して入力します。最初の空行より下は説明欄として扱われ、登録されません。
 
 ### サービスアカウントを用意する
@@ -147,12 +149,22 @@ pnpm admin:bootstrap -- --input ./data/mentors.xlsx --apply
 このコマンドが以下を一括作成・更新します。
 
 - `mentors` のプロフィール
-- 各メンター用のランダムな `qrInventory`
+- メンター人数と同数の、未割当の共通 `qrInventory`
 - 初回のみ `appConfig/settings` の `isAllOpen: false`
 - QR文字列・PNG一覧 `admin-output/qr-codes.xlsx`
 - 印刷・配布用PNG `admin-output/qr-images/`
 
-出力されたQR画像は、必ず対応するメンター本人へ1枚ずつ配布してください。`qrId` が空欄のまま再取込しても、そのメンターにすでに発行済みの未登録QRが1枚なら自動で再利用されます。複数のQRを発行した状態にはしないでください。
+出力されたQR画像は、メンターへランダムに1枚ずつ配布できます。PNGは `qr-001.png` のような配布番号で出力され、特定のメンターを意味しません。実際のQR文字列にはランダムな `qrId` が入り、メンターが初回登録で名前を選んでQRを読むまで、誰にも紐付いていません。再取込時は既存の未割当QRを再利用し、メンター人数よりQR数が不足したときだけ追加発行します。
+
+### プロフィール画像URLを更新する
+
+画像を差し替える場合は、前回使ったExcelの対象行の `imageUrl` だけを新しいHTTPS URLへ変更し、同じコマンドを実行します。
+
+```bash
+pnpm admin:bootstrap -- --input ./data/mentors.xlsx --apply
+```
+
+`mentorId` は変更しないでください。獲得履歴やQRの紐付けを消さずに、`mentors/{mentorId}` の `imageUrl` だけを更新できます。
 
 ### 誤登録を解除する
 
@@ -163,6 +175,23 @@ pnpm admin:bootstrap -- --unassign syokora --apply
 ```
 
 QR対応表と、そのとき登録した端末の初期設定を解除します。その後、メンター本人が同じQRをもう一度登録できます。
+
+### 1名だけ誤紐付けした場合（Firestore Consoleでの手動解除）
+
+まずは上の `--unassign` を使う方法が安全です。Consoleで直接直す場合は、誤紐付けの `mentorQrBindings/{mentorId}` を開いて、次の2つの値を控えます。
+
+- `qrId`
+- `registeredByUid`
+
+続けて、次の**3ドキュメントだけ**を削除します。
+
+1. `mentorQrBindings/{mentorId}` — 誤紐付けされたメンターIDのドキュメント
+2. `qrCodes/{qrId}` — 先ほど控えたQR IDのドキュメント
+3. `deviceSetups/{registeredByUid}` — 先ほど控えた匿名認証UIDのドキュメント
+
+`mentors/{mentorId}` と `qrInventory/{qrId}` は削除しないでください。前者を消すとプロフィールが一覧から消え、後者を消すと同じ物理QRを再登録できなくなります。3件を削除した後、該当メンターが初回画面で自分の名前を選び、同じQRをもう一度読み取れば再登録できます。
+
+QRは事前に誰用とも決まっていないため、配る相手を間違えても、上の3件を削除すれば同じQRを別のメンターが再登録できます。`qrInventory/{qrId}` は変更しません。
 
 ## 3. GitHub Pagesへ公開する（ローカルテスト不要）
 
@@ -193,7 +222,7 @@ Firebaseコンソールの `appConfig/settings` で `isAllOpen` をbooleanの `t
 
 - 獲得履歴は端末・ブラウザごとのLocalStorageです。ブラウザのサイトデータを消すと履歴も消えます。
 - QR登録済みのメンターQRを、URLや画面だけで厳密に本人確認する仕組みではありません。物理QRの配布・保管で運用してください。
-- `qrId` を変更してQRを差し替える操作は、誤ったラベルが残る原因になります。イベント中にむやみにExcelを再取込しないでください。
+- QRは初回登録が完了すると使用済みになります。使用済みQRを別のメンターへ渡さないでください。
 - 画像URLは参加者のブラウザへ配信されるため、公開して問題ない画像だけを使ってください。
 
 ## 主なファイル
