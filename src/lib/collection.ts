@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'tokai-nfc-profile-book:collected-ids:v1'
+const STORAGE_KEY = 'tokai-profile-book:collected-ids:v2'
 
 export function loadCollectedIds(): Set<string> {
   try {

@@ -1,20 +1,125 @@
 rules_version = '2';
 
+// 注意: 管理者用のExcel取込は Firebase Admin SDK を使うため、このルールを通りません。
+// 参加者ブラウザには、必要最小限の読み取りと「初回QR登録」の作成だけを許可します。
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 参加者のブラウザからは、イベントで公開するプロフィールだけを読めるようにします。
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function ownsDevice(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function mentorExists(mentorId) {
+      return exists(/databases/$(database)/documents/mentors/$(mentorId));
+    }
+
+    // qrInventory はクライアントから読めません。QRに印刷されたランダムIDを知る人だけが
+    // ルール経由で有効性を満たせます。
+    function qrIsAvailable(qrId, mentorId) {
+      return exists(/databases/$(database)/documents/qrInventory/$(qrId))
+        && get(/databases/$(database)/documents/qrInventory/$(qrId)).data.active == true
+        && get(/databases/$(database)/documents/qrInventory/$(qrId)).data.mentorId == mentorId
+        && !exists(/databases/$(database)/documents/qrCodes/$(qrId));
+    }
+
+    function pendingMentorDevice(uid, mentorId, qrId) {
+      return existsAfter(/databases/$(database)/documents/deviceSetups/$(uid))
+        && getAfter(/databases/$(database)/documents/deviceSetups/$(uid)).data.ownerType == 'mentor'
+        && getAfter(/databases/$(database)/documents/deviceSetups/$(uid)).data.mentorId == mentorId
+        && getAfter(/databases/$(database)/documents/deviceSetups/$(uid)).data.qrId == qrId;
+    }
+
+    function pendingQrCode(uid, mentorId, qrId) {
+      return existsAfter(/databases/$(database)/documents/qrCodes/$(qrId))
+        && getAfter(/databases/$(database)/documents/qrCodes/$(qrId)).data.mentorId == mentorId
+        && getAfter(/databases/$(database)/documents/qrCodes/$(qrId)).data.registeredByUid == uid;
+    }
+
+    function pendingMentorBinding(uid, mentorId, qrId) {
+      return existsAfter(/databases/$(database)/documents/mentorQrBindings/$(mentorId))
+        && getAfter(/databases/$(database)/documents/mentorQrBindings/$(mentorId)).data.qrId == qrId
+        && getAfter(/databases/$(database)/documents/mentorQrBindings/$(mentorId)).data.registeredByUid == uid;
+    }
+
     match /mentors/{mentorId} {
       allow read: if true;
       allow write: if false;
     }
 
-    // true にするとアプリ上の全プロフィールが解放されます。
     match /appConfig/settings {
       allow read: if true;
       allow write: if false;
     }
 
-    // 他のコレクションは公開しません。
+    // QRの在庫は管理者がExcel取込で事前発行します。クライアントから列挙・閲覧できません。
+    match /qrInventory/{qrId} {
+      allow read, write: if false;
+    }
+
+    // QRを読んだ時にだけ、匿名認証済みクライアントが対応するメンターを1件取得できます。
+    match /qrCodes/{qrId} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['mentorId', 'registeredByUid', 'registeredAt'])
+        && request.resource.data.keys().hasAll(['mentorId', 'registeredByUid', 'registeredAt'])
+        && request.resource.data.mentorId is string
+        && request.resource.data.registeredByUid == request.auth.uid
+        && request.resource.data.registeredAt == request.time
+        && mentorExists(request.resource.data.mentorId)
+        && qrIsAvailable(qrId, request.resource.data.mentorId)
+        && pendingMentorDevice(request.auth.uid, request.resource.data.mentorId, qrId)
+        && pendingMentorBinding(request.auth.uid, request.resource.data.mentorId, qrId);
+      allow update, delete: if false;
+    }
+
+    // メンターが複数のQRを登録できないよう、mentorIdをキーにした逆引きも同時作成します。
+    match /mentorQrBindings/{mentorId} {
+      allow read: if false;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['qrId', 'registeredByUid', 'registeredAt'])
+        && request.resource.data.keys().hasAll(['qrId', 'registeredByUid', 'registeredAt'])
+        && request.resource.data.qrId is string
+        && request.resource.data.registeredByUid == request.auth.uid
+        && request.resource.data.registeredAt == request.time
+        && mentorExists(mentorId)
+        && !exists(/databases/$(database)/documents/mentorQrBindings/$(mentorId))
+        && qrIsAvailable(request.resource.data.qrId, mentorId)
+        && pendingMentorDevice(request.auth.uid, mentorId, request.resource.data.qrId)
+        && pendingQrCode(request.auth.uid, mentorId, request.resource.data.qrId);
+      allow update, delete: if false;
+    }
+
+    // 端末の初期設定はUID本人が一度だけ作れます。以後の変更・削除は禁止です。
+    match /deviceSetups/{uid} {
+      allow get: if ownsDevice(uid);
+      allow list: if false;
+      allow create: if ownsDevice(uid)
+        && (
+          (
+            request.resource.data.keys().hasOnly(['ownerType', 'createdAt'])
+            && request.resource.data.ownerType == 'other'
+            && request.resource.data.createdAt == request.time
+          )
+          ||
+          (
+            request.resource.data.keys().hasOnly(['ownerType', 'mentorId', 'qrId', 'createdAt'])
+            && request.resource.data.ownerType == 'mentor'
+            && request.resource.data.mentorId is string
+            && request.resource.data.qrId is string
+            && request.resource.data.createdAt == request.time
+            && mentorExists(request.resource.data.mentorId)
+            && qrIsAvailable(request.resource.data.qrId, request.resource.data.mentorId)
+            && pendingQrCode(request.auth.uid, request.resource.data.mentorId, request.resource.data.qrId)
+            && pendingMentorBinding(request.auth.uid, request.resource.data.mentorId, request.resource.data.qrId)
+          )
+        );
+      allow update, delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

@@ -6,6 +6,7 @@ dist/
 .firebaserc
 service-account*.json
 firebase-service-account*.json
+gha-creds-*.json
 admin-output/
 data/*.xlsx
 !data/mentors.template.xlsx

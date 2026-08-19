@@ -1,144 +1,174 @@
-# 東海の日 NFCプロフィール帳
+# 東海の日 QRプロフィール帳
 
-メンターの NFC カードを Android 版 Chrome で読み取り、プロフィールを集めるイベント用 Web アプリです。画面は静的な GitHub Pages、公開用のメンターデータは Firebase Firestore、各参加者が集めた履歴はその端末だけの LocalStorage に保存します。
+東海の日のメンター交流で使う、QRコード式のプロフィール収集Webアプリです。
 
-## この構成を選んだ理由
+既存のNFCカードとプロフィールURLには一切変更を加えません。NFCカードは従来どおり自己紹介プロフィールを開く用途で使い、イベント用に別途配布するQRコードをプロフィール帳の収集に使います。iPhone / Android のSafari・Chromeで動作します。
 
-| 役割 | 採用技術 | 無料で運用できる理由 |
+## 構成
+
+| 役割 | 技術 | 使い方 |
 | --- | --- | --- |
-| Web画面 | React + Vite | 速く軽量な静的サイトを作れる |
-| 公開 | GitHub Pages | 静的ファイルのホスティングが無料。独自ドメインなしでも HTTPS を利用可能 |
-| メンターデータ | Firebase Firestore（Spark プラン） | ブラウザから Firebase SDK で直接、読み取り専用データを取得できる |
-| 収集履歴 | LocalStorage | ユーザー登録・サーバー不要。端末内にだけ残る |
-| NFC | Web NFC API | Android Chrome が HTTPS ページで標準提供する API。アプリのインストール不要 |
+| 画面・QR読取り | React + Vite + カメラAPI | 参加者がアプリ内のカメラでQRを読む |
+| 公開 | GitHub Pages | HTTPS付きの静的サイトとして無料公開 |
+| メンターデータ・QR紐付け | Firebase Firestore | 公開プロフィール、QR在庫、初回登録を管理 |
+| 端末識別 | Firebase Authentication（匿名認証） | ログインなしで端末ごとのUIDを作る |
+| 獲得履歴 | LocalStorage | 参加者の端末だけに保存 |
+| 一括管理 | Node.js管理コマンド + Excel | Excelからメンター・QR在庫を一括作成 |
 
-Firestore の無料枠（Spark）は読み取り 50,000 回/日です。プロフィール一覧は初回表示でメンター人数ぶんの read を使うため、50 人なら目安は 1,000 回の初回表示/日です。通常規模のイベントでは十分ですが、枠・規約は Firebase コンソールで開催前に確認してください。GitHub Pages と Firebase は「無料枠を超えない」限り課金設定なしで運用できます。
+## イベントでの流れ
 
-> **大切な設計上の注意**: このアプリはログインを持たないため、プロフィール画像 URL はブラウザへ配信されます。「未獲得」を画面上で隠す演出であり、機密情報のアクセス制御ではありません。画像・プロフィールには公開して問題ない内容だけを入れてください。
+### メンター本人のQR初回登録
 
-## 1. 事前に必要なもの
+1. メンター本人がプロフィール帳を初めて開きます。
+2. 自分の名前を選択します。
+3. 自分に配られたイベントQRをカメラで読み取ります。
+4. Firestoreに「このQRはこのメンターのもの」という関係が一度だけ作成されます。
 
-- Google アカウント（Firebase 用）
-- GitHub アカウント（GitHub Pages 用）
-- NFC 対応 Android 端末と最新版 Chrome（実機テスト用）
-- NFC カードへ URL を書き込めるアプリ
+`その他` を選ぶと、QRの所有者登録はせず、収集機能だけを使う端末として初期設定されます。
 
-PC のローカル環境には Node.js 20 以降を用意します。Node.js を入れた後、最初の一度だけ `corepack enable` を実行して pnpm を使えるようにします。
+### 参加者の収集
 
-## 2. ローカルで起動する
+1. プロフィール帳で `QRを読み取る` を押します。
+2. カメラ利用を許可します。
+3. メンターのイベントQRを読み取ります。
+4. プロフィール画像が表示され、獲得済みとして端末に保存されます。
 
-1. このフォルダで依存パッケージを入れます。
+QRを読むために既存NFCカードのURL、既存プロフィールサイト、Chrome履歴へアクセスすることはありません。
 
-   ```bash
-   pnpm install
-   ```
-
-2. `.env.example` をコピーして `.env.local` を作ります。
-
-   ```bash
-   cp .env.example .env.local
-   ```
-
-3. 次節で取得する Firebase の値を `.env.local` の空欄に貼り付けます。
-
-4. 開発サーバーを起動し、表示された URL をブラウザで開きます。
-
-   ```bash
-   pnpm dev
-   ```
-
-5. 完成版のビルド確認は次です。
-
-   ```bash
-   pnpm build
-   ```
-
-`.env.local` は Git に追加しません。Firebase 設定値はクライアントに含まれる値ですが、誤って API キーに権限を与えないよう、後述の Firestore ルールを必ず設定します。
-
-## 3. Firebase を準備する
-
-### 3-1. プロジェクトと Firestore を作る
-
-1. [Firebase コンソール](https://console.firebase.google.com/) で **プロジェクトを追加** を選びます。任意の名前（例: `tokai-nfc-profile-book`）を入力します。Google Analytics はこの用途では不要です。
-2. プロジェクトの概要画面で Web アイコン `</>` を選び、アプリ名を入れて登録します。
-3. 表示される `firebaseConfig` から以下を `.env.local` へ転記します。
-
-   ```js
-   apiKey              -> VITE_FIREBASE_API_KEY
-   authDomain          -> VITE_FIREBASE_AUTH_DOMAIN
-   projectId           -> VITE_FIREBASE_PROJECT_ID
-   storageBucket       -> VITE_FIREBASE_STORAGE_BUCKET
-   messagingSenderId   -> VITE_FIREBASE_MESSAGING_SENDER_ID
-   appId               -> VITE_FIREBASE_APP_ID
-   ```
-
-4. 左メニューの **Firestore Database** から **データベースを作成** を選びます。ロケーションは参加者に近い `asia-northeast1`（東京）を推奨します。開始モードは後でルールを貼り替えるため、いったん選べる方で進めて構いません。
-
-### 3-2. Firestore にデータを入れる
-
-Firestore の **データ** タブで、次のように作成します。`mentors` の下のドキュメントIDは NFC URL の ID と完全に同じにしてください（例: `syokora`）。
+## Firestoreの構造
 
 ```text
-mentors （コレクション）
-  syokora （ドキュメント）
-    name: "ショコラ"
-    generation: "18期"
-    imageUrl: "https://.../syokora-profile.png"
-  tarou （ドキュメント）
-    name: "タロウ"
-    generation: "OB・OG"
-    imageUrl: "https://.../tarou-profile.png"
+mentors/{mentorId}                 # 管理者がExcelから作成
+  name
+  generation
+  imageUrl
 
-appConfig （コレクション）
-  settings （ドキュメント）
-    isAllOpen: false （boolean）
+qrInventory/{qrId}                 # 管理者が事前発行。ブラウザから読めない
+  active: true
+  mentorId
+  issuedAt
+
+qrCodes/{qrId}                     # メンター本人の初回登録で作成
+  mentorId
+  registeredByUid
+  registeredAt
+
+mentorQrBindings/{mentorId}        # メンター1人につきQRは1枚
+  qrId
+  registeredByUid
+  registeredAt
+
+deviceSetups/{anonymousAuthUid}    # 端末の初期設定。作成後は変更不可
+  ownerType: "mentor" | "other"
+  mentorId?                        # mentor の場合だけ
+  qrId?                            # mentor の場合だけ
+  createdAt
+
+appConfig/settings
+  isAllOpen: false
 ```
 
-- `name`、`generation`、`imageUrl` はすべて文字列です。
-- 世代名は `OB・OG`、`13期` から `18期` のように入れるとその順で並びます。`OB` / `OG` も使えます。
-- 画像 URL は、イベント中に誰でも画像を読める安定した HTTPS URL を使います。Firebase Storage を使う場合は、アップロード済み画像のダウンロード URL を入れてください。
-- `appConfig/settings` を作り忘れると、全開放は安全側（`false`）で動作します。
+FirestoreはスキーマをConsoleで1件ずつ定義する必要はありません。後述の管理コマンドが `mentors`、`qrInventory`、`appConfig/settings` を初回作成します。残りの3コレクションは、メンター本人の初回登録時に自動作成されます。
 
-### 3-3. ルールを安全にする
+## 1. Firebaseで最初に一度だけ行う設定
 
-1. Firestore の **ルール** タブを開きます。
-2. このリポジトリの [firestore.rules](./firestore.rules) の内容で置き換え、**公開** を押します。
+### Firestoreを有効にする
 
-このルールでは参加者は `mentors` と `appConfig/settings` を読むだけで、追加・変更・削除はできません。運営者は Firebase コンソールから管理者としてデータを編集できます。
+1. [Firebaseコンソール](https://console.firebase.google.com/) でプロジェクトを作成します。
+2. Webアプリを登録し、表示されたFirebase設定を控えます。後でGitHub ActionsのVariablesへ登録します。
+3. **Firestore Database** でデータベースを作成します。ロケーションは `asia-northeast1`（東京）を推奨します。
 
-## 4. NFC カードへ書き込む
+### 匿名認証を有効にする
 
-NFC 書込アプリで **URL / URI** レコードを選び、メンターごとに次の形式で書き込みます。
+1. Firebaseコンソールの **Authentication** を開きます。
+2. **Sign-in method** で **匿名** を有効にします。
+3. GitHub Pages公開後、Authenticationの **Settings > Authorized domains** に `GitHubユーザー名.github.io` を追加します。カスタムドメインを使う場合は、そのドメインも追加します。
 
-```text
-https://nagoya-mentors.com/mentor/syokora
+匿名認証は参加者にメールアドレスやパスワードを求めません。Firestoreルールが、端末ごとのQR初回登録を制限するためだけに使います。
+
+### Firestoreルールの自動反映を設定する
+
+GitHub Actionsからルールを反映するため、Google Cloudの **IAMと管理 > サービスアカウント** でデプロイ専用のサービスアカウントを作成し、プロジェクトのIAMで **Firebase Rules Admin**（`roles/firebaserules.admin`）を付与します。作成したJSON鍵の内容を、GitHubの **Settings > Secrets and variables > Actions > Secrets** に `FIREBASE_SERVICE_ACCOUNT_JSON` として登録してください。
+
+JSON鍵は長期認証情報です。リポジトリやVariablesではなく、必ずSecretへ登録します。`.gitignore` でも除外済みです。
+
+`firestore.rules` は以下を保証します。
+
+- `mentors` と `isAllOpen` は読み取り専用
+- QR在庫の一覧はブラウザから読めない
+- QRの対応表は、ログイン済みの匿名ユーザーでもQR IDを指定した1件取得だけ
+- メンター本人の初回登録は、QR・メンター・端末設定の3件を同時に作る場合だけ許可
+- 登録後の変更・削除はブラウザから不可
+
+> 名前選択だけでは本人確認になりません。物理QRを本人へ配布し、本人が登録操作をするイベント運用を前提にした設計です。誤登録は管理者コマンドで解除します。
+
+## 2. ExcelからメンターとQR在庫を一括作成する
+
+テンプレート [data/mentors.template.xlsx](./data/mentors.template.xlsx) をコピーして、イベント用のExcelを作ります。
+
+| 列 | 必須 | 内容 |
+| --- | --- | --- |
+| `mentorId` | はい | 半角英数字・ハイフン・アンダースコア。以後変更しないID |
+| `name` | はい | 表示名 |
+| `generation` | はい | 例: `OB・OG`、`18期` |
+| `imageUrl` | はい | HTTPSのプロフィール画像URL |
+| `qrId` | いいえ | 初回は空欄でよい。再取込時は出力された値を使う |
+
+メンターのデータ行は見出し直後から連続して入力します。最初の空行より下は説明欄として扱われ、登録されません。
+
+### サービスアカウントを用意する
+
+Firebaseコンソールの **プロジェクトの設定 > サービスアカウント > 新しい秘密鍵の生成** でJSONをダウンロードします。たとえばプロジェクト外の安全な場所へ保存します。
+
+この作業は、ExcelをFirestoreへ反映する管理者PCでのみ必要です。アプリをローカル起動して確認する必要はありません。Node.js 20以上を入れ、リポジトリ直下で一度だけ `pnpm install` を実行します。
+
+PowerShellでは、作業中のターミナルでだけパスを設定します。
+
+```powershell
+$env:GOOGLE_APPLICATION_CREDENTIALS = "C:\安全な場所\firebase-service-account.json"
 ```
 
-- ドメインはこのアプリの公開 URL と違っていても構いません。アプリは画面遷移せず、`/mentor/` の後ろの `syokora` だけを使います。
-- `https://example.com/anything/syokora` のように ID が URL の最後にある形式、`?id=syokora` も読めます。
-- ID は半角英数字、ハイフン、アンダースコアだけにしてください。
-- NFC の URL をスマホが勝手に開くことがあるため、参加者には「先にプロフィール帳を Chrome で開き、NFCを読み取る を押してから、カードにかざす」と案内してください。
+このJSONは管理者権限を持ちます。GitHub・Google Driveの共有フォルダ・リポジトリへ保存しないでください。`.gitignore` でも除外済みです。
 
-## 5. GitHub Pages へ無料デプロイする
+### 反映前の検証
 
-### 5-1. GitHub リポジトリを作る
+```bash
+pnpm admin:bootstrap -- --input ./data/mentors.xlsx --dry-run
+```
 
-1. GitHub で空のリポジトリを作ります（例: `tokai-nfc-profile-book`）。
-2. このプロジェクトを commit して `main` ブランチへ push します。
+必須項目、ID形式、重複、画像URLを検証します。FirestoreもQRファイルも変更しません。印刷・配布するQRは、次の `--apply` が完了してから出力されるものだけを使ってください。
 
-   ```bash
-   git init
-   git add .
-   git commit -m "Create NFC profile book"
-   git branch -M main
-   git remote add origin https://github.com/＜アカウント名＞/＜リポジトリ名＞.git
-   git push -u origin main
-   ```
+### Firestoreへ反映
 
-### 5-2. Firebase の値を GitHub に登録する
+```bash
+pnpm admin:bootstrap -- --input ./data/mentors.xlsx --apply
+```
 
-1. GitHub リポジトリの **Settings > Secrets and variables > Actions > Variables** を開きます。
-2. 次の 6 個を Repository variables として追加します。値は `.env.local` と同じ Firebase 設定です。
+このコマンドが以下を一括作成・更新します。
+
+- `mentors` のプロフィール
+- 各メンター用のランダムな `qrInventory`
+- 初回のみ `appConfig/settings` の `isAllOpen: false`
+- QR文字列・PNG一覧 `admin-output/qr-codes.xlsx`
+- 印刷・配布用PNG `admin-output/qr-images/`
+
+出力されたQR画像は、必ず対応するメンター本人へ1枚ずつ配布してください。`qrId` が空欄のまま再取込しても、そのメンターにすでに発行済みの未登録QRが1枚なら自動で再利用されます。複数のQRを発行した状態にはしないでください。
+
+### 誤登録を解除する
+
+メンターのQR初回登録をやり直す場合は、次を実行します。
+
+```bash
+pnpm admin:bootstrap -- --unassign syokora --apply
+```
+
+QR対応表と、そのとき登録した端末の初期設定を解除します。その後、メンター本人が同じQRをもう一度登録できます。
+
+## 3. GitHub Pagesへ公開する（ローカルテスト不要）
+
+1. GitHubにリポジトリを作成し、全ファイルを `main` ブランチへpushします。
+2. **Settings > Pages** で Source を **GitHub Actions** にします。
+3. **Settings > Secrets and variables > Actions > Variables** に、次のFirebase設定値を登録します。
 
    ```text
    VITE_FIREBASE_API_KEY
@@ -149,36 +179,27 @@ https://nagoya-mentors.com/mentor/syokora
    VITE_FIREBASE_APP_ID
    ```
 
-ここでは **Secrets ではなく Variables** を使います。`VITE_` で始まる値はビルド後の JavaScript に含まれるため、隠せる秘密情報ではないからです。安全性は Firestore ルールで守ります。
+4. 同じ画面の **Secrets** に、前節で作った `FIREBASE_SERVICE_ACCOUNT_JSON` を登録します。
+5. `main` へpushすると `.github/workflows/deploy.yml` が、GitHub上で本番ビルド、GitHub Pages公開、Firestoreルール反映を行います。ローカルで `pnpm dev` や `pnpm run build` を行う必要はありません。
+6. GitHubの **Actions** で `Deploy to GitHub Pages` が成功したことを確認し、公開ドメインをFirebase AuthenticationのAuthorized domainsへ追加します。
 
-### 5-3. Pages を有効化する
+`VITE_` で始まる値はブラウザへ含まれるFirebaseの公開設定です。秘密鍵ではありません。書込み安全性はFirestoreルールと、管理者だけが持つサービスアカウントJSONで守ります。
 
-1. **Settings > Pages** を開きます。
-2. **Build and deployment** の Source で **GitHub Actions** を選びます。
-3. `main` へ push すると `.github/workflows/deploy.yml` がビルド・公開します。
-4. **Actions** タブで `Deploy to GitHub Pages` が緑のチェックになったら、表示された URL を開きます。通常は `https://＜アカウント名＞.github.io/＜リポジトリ名＞/` です。
+## 4. 終了後の全開放
 
-公開後は GitHub Pages の HTTPS URL を使うため、Web NFC の HTTPS 条件も満たします。`main` に更新を push するたび自動で再公開されます。
+Firebaseコンソールの `appConfig/settings` で `isAllOpen` をbooleanの `true` に変更します。参加者が再読み込みすると、獲得履歴に関係なく全プロフィールがカラー表示され、タップ可能になります。
 
-## 6. 開催前・当日の確認
+## 注意事項
 
-1. 公開 URL を **Android の Chrome** で開きます（iPhone の Safari / Chrome は Web NFC 非対応です）。
-2. `NFCを読み取る` を押して NFC 使用を許可し、テストカードをかざします。
-3. モーダルが表示され、再読み込み後にも対象メンターがカラー表示のままか確認します。
-4. Chrome のサイトデータを消すと履歴も消えます。端末・ブラウザごとに別のコレクションです。
-5. 会場 Wi-Fi が不安定な場合に備え、モバイル回線でも一度試します。プロフィール一覧とカード読取後の最新プロフィールを Firestore から読むため、初回は通信が必要です。
+- 獲得履歴は端末・ブラウザごとのLocalStorageです。ブラウザのサイトデータを消すと履歴も消えます。
+- QR登録済みのメンターQRを、URLや画面だけで厳密に本人確認する仕組みではありません。物理QRの配布・保管で運用してください。
+- `qrId` を変更してQRを差し替える操作は、誤ったラベルが残る原因になります。イベント中にむやみにExcelを再取込しないでください。
+- 画像URLは参加者のブラウザへ配信されるため、公開して問題ない画像だけを使ってください。
 
-## 7. 終了後の全開放
+## 主なファイル
 
-管理画面はアプリにありません。Firebase コンソールの **Firestore Database > データ > `appConfig/settings`** で、`isAllOpen` を boolean の `true` に変更するだけです。
-
-参加者がページを再読み込みすると、獲得履歴に関係なく全メンターがカラーになり、タップしてプロフィールを開けます。元に戻す場合は `false` に変更します。
-
-## 主なソースコード
-
-- [src/App.tsx](./src/App.tsx): 画面・進捗・Firestore読込・NFC成功後の収集処理
-- [src/hooks/useNfcScanner.ts](./src/hooks/useNfcScanner.ts): Web NFC の `NDEFReader` 実装
-- [src/lib/nfc.ts](./src/lib/nfc.ts): URL から ID を安全に抽出する処理
-- [src/lib/mentors.ts](./src/lib/mentors.ts): Firestore の `mentors` / `appConfig` 連携
-- [src/lib/collection.ts](./src/lib/collection.ts): LocalStorage の端末内収集履歴
-- [src/components/ProfileModal.tsx](./src/components/ProfileModal.tsx): プロフィール画像のモーダル
+- [src/App.tsx](./src/App.tsx): 初回設定、QR登録、QR収集、進捗表示
+- [src/hooks/useQrScanner.ts](./src/hooks/useQrScanner.ts): iPhone対応のカメラQR読み取り
+- [src/lib/setup.ts](./src/lib/setup.ts): QR・メンター・端末のFirestore紐付け
+- [firestore.rules](./firestore.rules): 参加者用のFirestore Security Rules
+- [scripts/bootstrap-event.mjs](./scripts/bootstrap-event.mjs): Excel取込、QR在庫作成、QR画像出力、解除

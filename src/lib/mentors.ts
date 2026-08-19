@@ -23,7 +23,7 @@ export async function fetchMentors(): Promise<Mentor[]> {
     .filter((mentor): mentor is Mentor => mentor !== null)
 }
 
-/** NFC を読んだ直後に最新のプロフィールを取得するための 1 件問い合わせです。 */
+/** QRを読んだ直後に最新のプロフィールを取得するための 1 件問い合わせです。 */
 export async function fetchMentor(id: string): Promise<Mentor | null> {
   if (!isFirebaseConfigured || !db) return null
 

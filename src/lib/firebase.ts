@@ -1,4 +1,5 @@
 import { getApps, initializeApp } from 'firebase/app'
+import { getAuth } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
 
 const firebaseConfig = {
@@ -14,8 +15,9 @@ export const isFirebaseConfigured = Boolean(
   firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId,
 )
 
-const app = isFirebaseConfigured
+export const app = isFirebaseConfigured
   ? getApps()[0] ?? initializeApp(firebaseConfig)
   : undefined
 
 export const db = app ? getFirestore(app) : undefined
+export const auth = app ? getAuth(app) : undefined

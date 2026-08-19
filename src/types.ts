@@ -8,3 +8,11 @@ export type Mentor = {
 export type AppConfig = {
   isAllOpen: boolean
 }
+
+export type OwnerType = 'mentor' | 'other'
+
+export type DeviceSetup = {
+  ownerType: OwnerType
+  mentorId?: string
+  qrId?: string
+}
