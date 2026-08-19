@@ -3,4 +3,10 @@ node_modules/
 dist/
 .env
 .env.local
+.firebaserc
+service-account*.json
+firebase-service-account*.json
+admin-output/
+data/*.xlsx
+!data/mentors.template.xlsx
 *.log
