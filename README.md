@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 画面・QR読取り | React + Vite + カメラAPI | 参加者がアプリ内のカメラでQRを読む |
 | 公開 | GitHub Pages | HTTPS付きの静的サイトとして無料公開 |
-| メンターデータ・QR紐付け | Firebase Firestore | 公開プロフィール、QR在庫、初回登録を管理 |
+| メンターデータ・QR紐付け | Firebase Firestore | 一覧アイコン、プロフィール画像、QR在庫、初回登録を管理 |
 | 端末識別 | Firebase Authentication（匿名認証） | ログインなしで端末ごとのUIDを作る |
 | 獲得履歴 | LocalStorage | 参加者の端末だけに保存 |
 | 一括管理 | Node.js管理コマンド + Excel | Excelからメンター・QR在庫を一括作成 |
@@ -22,7 +22,7 @@
 1. メンター本人がプロフィール帳を初めて開きます。
 2. 自分の名前を選択します。
 3. 手元にランダム配布されたイベントQRをカメラで読み取ります。
-4. Firestoreに「このQRは、このメンターのもの」という関係が一度だけ作成されます。
+4. Firestoreに「このQRは、このメンターのもの」という関係が一度だけ作成され、本人のプロフィールも自動で獲得済みになります（画像ポップアップは開きません）。
 
 `その他` を選ぶと、QRの所有者登録はせず、収集機能だけを使う端末として初期設定されます。
 
@@ -31,7 +31,7 @@
 1. プロフィール帳で `QRを読み取る` を押します。
 2. カメラ利用を許可します。
 3. メンターのイベントQRを読み取ります。
-4. プロフィール画像が表示され、獲得済みとして端末に保存されます。
+4. プロフィール帳用の画像が表示され、獲得済みとして端末に保存されます。一覧では顔アイコンがカラー表示になります。
 
 QRを読むために既存NFCカードのURL、既存プロフィールサイト、Chrome履歴へアクセスすることはありません。
 
@@ -41,6 +41,7 @@ QRを読むために既存NFCカードのURL、既存プロフィールサイト
 mentors/{mentorId}                 # 管理者がExcelから作成
   name
   generation
+  iconUrl                           # 一覧に表示する正方形の顔アイコン
   imageUrl
 
 qrInventory/{qrId}                 # 管理者が事前発行。ブラウザから読めない
@@ -65,11 +66,12 @@ deviceSetups/{anonymousAuthUid}    # 端末の初期設定。作成後は変更�
 
 appConfig/settings
   isAllOpen: false
+  collectionEpoch: 1                # 獲得履歴を一括リセットする世代番号
 ```
 
 FirestoreはスキーマをConsoleで1件ずつ定義する必要はありません。後述の管理コマンドが `mentors`、`qrInventory`、`appConfig/settings` を初回作成します。残りの3コレクションは、メンター本人の初回登録時に自動作成されます。
 
-## 1. Firebaseで最初に一度だけ行う設定
+## 1. 初期設定（最初に一度だけ）
 
 ### Firestoreを有効にする
 
@@ -106,7 +108,7 @@ JSON鍵は長期認証情報です。リポジトリやVariablesではなく、�
 
 > 名前選択だけでは本人確認になりません。物理QRを本人へ配布し、本人が登録操作をするイベント運用を前提にした設計です。誤登録は管理者コマンドで解除します。
 
-## 2. ExcelからメンターとQR在庫を一括作成する
+## 2. 初期データ登録（イベント前に一度）
 
 テンプレート [data/mentors.template.xlsx](./data/mentors.template.xlsx) をコピーして、イベント用のExcelを作ります。
 
@@ -115,6 +117,7 @@ JSON鍵は長期認証情報です。リポジトリやVariablesではなく、�
 | `mentorId` | はい | 半角英数字・ハイフン・アンダースコア。以後変更しないID |
 | `name` | はい | 表示名 |
 | `generation` | はい | 例: `OB・OG`、`18期` |
+| `iconUrl` | はい | 一覧用の顔アイコンURL。HTTPS、正方形の顔写真を推奨 |
 | `imageUrl` | はい | HTTPSのプロフィール画像URL |
 メンターのデータ行は見出し直後から連続して入力します。最初の空行より下は説明欄として扱われ、登録されません。
 
@@ -150,23 +153,49 @@ pnpm admin:bootstrap -- --input ./data/mentors.xlsx --apply
 
 - `mentors` のプロフィール
 - メンター人数と同数の、未割当の共通 `qrInventory`
-- 初回のみ `appConfig/settings` の `isAllOpen: false`
+- 初回のみ `appConfig/settings` の `isAllOpen: false` と `collectionEpoch: 1`
 - QR文字列・PNG一覧 `admin-output/qr-codes.xlsx`
 - 印刷・配布用PNG `admin-output/qr-images/`
 
 出力されたQR画像は、メンターへランダムに1枚ずつ配布できます。PNGは `qr-001.png` のような配布番号で出力され、特定のメンターを意味しません。実際のQR文字列にはランダムな `qrId` が入り、メンターが初回登録で名前を選んでQRを読むまで、誰にも紐付いていません。再取込時は既存の未割当QRを再利用し、メンター人数よりQR数が不足したときだけ追加発行します。
 
-### プロフィール画像URLを更新する
+## 3. 公開（初回のみ・ローカルテスト不要）
 
-画像を差し替える場合は、前回使ったExcelの対象行の `imageUrl` だけを新しいHTTPS URLへ変更し、同じコマンドを実行します。
+1. GitHubにリポジトリを作成し、全ファイルを `main` ブランチへpushします。
+2. **Settings > Pages** で Source を **GitHub Actions** にします。
+3. **Settings > Secrets and variables > Actions > Variables** に、次のFirebase設定値を登録します。
+
+   ```text
+   VITE_FIREBASE_API_KEY
+   VITE_FIREBASE_AUTH_DOMAIN
+   VITE_FIREBASE_PROJECT_ID
+   VITE_FIREBASE_STORAGE_BUCKET
+   VITE_FIREBASE_MESSAGING_SENDER_ID
+   VITE_FIREBASE_APP_ID
+   ```
+
+4. 同じ画面の **Secrets** に、前節で作った `FIREBASE_SERVICE_ACCOUNT_JSON` を登録します。
+5. `main` へpushすると `.github/workflows/deploy.yml` が、GitHub上で本番ビルド、GitHub Pages公開、Firestoreルール反映を行います。ローカルで `pnpm dev` や `pnpm run build` を行う必要はありません。
+6. GitHubの **Actions** で `Deploy to GitHub Pages` が成功したことを確認し、公開ドメインをFirebase AuthenticationのAuthorized domainsへ追加します。
+
+`VITE_` で始まる値はブラウザへ含まれるFirebaseの公開設定です。秘密鍵ではありません。書込み安全性はFirestoreルールと、管理者だけが持つサービスアカウントJSONで守ります。
+
+## 4. イベント運用
+
+### 顔アイコン・プロフィール画像を更新する
+
+Excelの対象行を更新してから、同じ取込コマンドを実行します。
+
+- `iconUrl`：収集一覧に常時表示する顔アイコン。正方形の顔写真を推奨
+- `imageUrl`：獲得時にモーダル表示するプロフィール帳の画像
 
 ```bash
 pnpm admin:bootstrap -- --input ./data/mentors.xlsx --apply
 ```
 
-`mentorId` は変更しないでください。獲得履歴やQRの紐付けを消さずに、`mentors/{mentorId}` の `imageUrl` だけを更新できます。
+`mentorId` は変更しないでください。既存のQR紐付けや獲得履歴を残したまま、画像だけを更新できます。
 
-### 誤登録を解除する
+### 1名の誤登録を解除する
 
 メンターのQR初回登録をやり直す場合は、次を実行します。
 
@@ -191,39 +220,28 @@ QR対応表と、そのとき登録した端末の初期設定を解除します
 
 `mentors/{mentorId}` と `qrInventory/{qrId}` は削除しないでください。前者を消すとプロフィールが一覧から消え、後者を消すと同じ物理QRを再登録できなくなります。3件を削除した後、該当メンターが初回画面で自分の名前を選び、同じQRをもう一度読み取れば再登録できます。
 
-QRは事前に誰用とも決まっていないため、配る相手を間違えても、上の3件を削除すれば同じQRを別のメンターが再登録できます。`qrInventory/{qrId}` は変更しません。
+### 本番前に全紐付けをリセットする
 
-## 3. GitHub Pagesへ公開する（ローカルテスト不要）
+動作確認で作成したQR紐付け、端末の「このスマホを使う人」設定、各ブラウザの獲得履歴をまとめてリセットします。実行前に、必ず対象Firebaseプロジェクトとサービスアカウントを確認してください。
 
-1. GitHubにリポジトリを作成し、全ファイルを `main` ブランチへpushします。
-2. **Settings > Pages** で Source を **GitHub Actions** にします。
-3. **Settings > Secrets and variables > Actions > Variables** に、次のFirebase設定値を登録します。
+```bash
+pnpm admin:bootstrap -- --reset-event --apply --confirm RESET_EVENT
+```
 
-   ```text
-   VITE_FIREBASE_API_KEY
-   VITE_FIREBASE_AUTH_DOMAIN
-   VITE_FIREBASE_PROJECT_ID
-   VITE_FIREBASE_STORAGE_BUCKET
-   VITE_FIREBASE_MESSAGING_SENDER_ID
-   VITE_FIREBASE_APP_ID
-   ```
+このコマンドは `qrCodes`、`mentorQrBindings`、`deviceSetups` の全ドキュメントを削除し、`isAllOpen` を `false` に戻します。`mentors`、`qrInventory`、物理QRは削除しないため、そのまま本番に使えます。
 
-4. 同じ画面の **Secrets** に、前節で作った `FIREBASE_SERVICE_ACCOUNT_JSON` を登録します。
-5. `main` へpushすると `.github/workflows/deploy.yml` が、GitHub上で本番ビルド、GitHub Pages公開、Firestoreルール反映を行います。ローカルで `pnpm dev` や `pnpm run build` を行う必要はありません。
-6. GitHubの **Actions** で `Deploy to GitHub Pages` が成功したことを確認し、公開ドメインをFirebase AuthenticationのAuthorized domainsへ追加します。
+同時に `collectionEpoch` を1つ進めます。参加者がページを再読み込みすると、それまでのLocalStorageの獲得履歴は自動的に無効化され、空のコレクションから始まります。Firebase Authenticationの匿名UID自体は消しませんが、`deviceSetups` を削除するため同じ端末でも初期設定をやり直せます。
 
-`VITE_` で始まる値はブラウザへ含まれるFirebaseの公開設定です。秘密鍵ではありません。書込み安全性はFirestoreルールと、管理者だけが持つサービスアカウントJSONで守ります。
-
-## 4. 終了後の全開放
+### イベント終了後に全開放する
 
 Firebaseコンソールの `appConfig/settings` で `isAllOpen` をbooleanの `true` に変更します。参加者が再読み込みすると、獲得履歴に関係なく全プロフィールがカラー表示され、タップ可能になります。
 
 ## 注意事項
 
-- 獲得履歴は端末・ブラウザごとのLocalStorageです。ブラウザのサイトデータを消すと履歴も消えます。
+- 獲得履歴は端末・ブラウザごとのLocalStorageです。ブラウザのサイトデータを消すと履歴も消えます。管理コマンドの全リセット後は、ページを再読み込みすると以前の履歴を使わなくなります。
 - QR登録済みのメンターQRを、URLや画面だけで厳密に本人確認する仕組みではありません。物理QRの配布・保管で運用してください。
 - QRは初回登録が完了すると使用済みになります。使用済みQRを別のメンターへ渡さないでください。
-- 画像URLは参加者のブラウザへ配信されるため、公開して問題ない画像だけを使ってください。
+- `iconUrl` と `imageUrl` は参加者のブラウザへ配信されるため、公開して問題ない画像だけを使ってください。
 
 ## 主なファイル
 
@@ -231,4 +249,4 @@ Firebaseコンソールの `appConfig/settings` で `isAllOpen` をbooleanの `t
 - [src/hooks/useQrScanner.ts](./src/hooks/useQrScanner.ts): iPhone対応のカメラQR読み取り
 - [src/lib/setup.ts](./src/lib/setup.ts): QR・メンター・端末のFirestore紐付け
 - [firestore.rules](./firestore.rules): 参加者用のFirestore Security Rules
-- [scripts/bootstrap-event.mjs](./scripts/bootstrap-event.mjs): Excel取込、QR在庫作成、QR画像出力、解除
+- [scripts/bootstrap-event.mjs](./scripts/bootstrap-event.mjs): Excel取込、QR在庫作成、QR画像出力、個別解除、全リセット

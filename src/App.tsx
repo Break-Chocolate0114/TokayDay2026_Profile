@@ -26,7 +26,8 @@ type ScannerMode = 'collect' | 'register' | null
 
 export default function App() {
   const [mentors, setMentors] = useState<Mentor[]>([])
-  const [collectedIds, setCollectedIds] = useState<Set<string>>(() => loadCollectedIds())
+  const [collectedIds, setCollectedIds] = useState<Set<string>>(() => new Set())
+  const [collectionEpoch, setCollectionEpoch] = useState(1)
   const [isAllOpen, setIsAllOpen] = useState(false)
   const [selectedMentor, setSelectedMentor] = useState<Mentor | null>(null)
   const [deviceSetup, setDeviceSetup] = useState<DeviceSetup | null>(null)
@@ -54,7 +55,12 @@ export default function App() {
         setUid(user.uid)
         setMentors(loadedMentors.sort((a, b) => generationRank(a.generation) - generationRank(b.generation) || a.name.localeCompare(b.name, 'ja')))
         setIsAllOpen(config.isAllOpen)
+        setCollectionEpoch(config.collectionEpoch)
+        setCollectedIds(loadCollectedIds(config.collectionEpoch))
         setDeviceSetup(savedSetup)
+        if (savedSetup?.ownerType === 'mentor' && typeof savedSetup.mentorId === 'string') {
+          setCollectedIds(addCollectedId(savedSetup.mentorId, config.collectionEpoch))
+        }
       } catch {
         if (active) setLoadError('プロフィール帳を読み込めませんでした。Firebase設定・匿名認証・通信状況を確認してください。')
       } finally {
@@ -108,12 +114,13 @@ export default function App() {
     try {
       const setup = await registerMentorQr(uid, pendingMentorId, qrId)
       setDeviceSetup(setup)
+      setCollectedIds(addCollectedId(pendingMentorId, collectionEpoch))
       setNotice(`「${mentor.name}」のQRを登録したよ！ ほかのメンターのQRも集めよう。`)
       return { ok: true, message: 'QRを登録しました！' }
     } catch {
       return { ok: false, message: '登録できませんでした。QRが使用済み・名前が登録済み、または通信エラーの可能性があります。運営へ確認してください。' }
     }
-  }, [mentors, pendingMentorId, uid])
+  }, [collectionEpoch, mentors, pendingMentorId, uid])
 
   const readQrForCollection = useCallback(async (rawValue: string) => {
     const qrId = parseQrId(rawValue)
@@ -123,7 +130,7 @@ export default function App() {
       const mentor = await fetchMentorFromQr(qrId)
       if (!mentor) return { ok: false, message: 'このQRはまだメンターに登録されていません。' }
 
-      const nextIds = addCollectedId(mentor.id)
+      const nextIds = addCollectedId(mentor.id, collectionEpoch)
       setCollectedIds(nextIds)
       setSelectedMentor(mentor)
       setNotice(`「${mentor.name}」をGETしたよ！`)
@@ -131,7 +138,7 @@ export default function App() {
     } catch {
       return { ok: false, message: 'プロフィールを取得できませんでした。通信状況を確認してもう一度お試しください。' }
     }
-  }, [])
+  }, [collectionEpoch])
 
   const scannerProps = scannerMode === 'register'
     ? {

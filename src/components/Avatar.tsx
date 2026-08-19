@@ -21,7 +21,7 @@ export default function Avatar({ mentor, unlocked, onClick }: AvatarProps) {
     >
       <span className="avatar-frame" aria-hidden="true">
         {!imageFailed ? (
-          <img src={mentor.imageUrl} alt="" onError={() => setImageFailed(true)} />
+          <img src={mentor.iconUrl} alt="" onError={() => setImageFailed(true)} />
         ) : (
           <span className="avatar-fallback">?</span>
         )}

@@ -8,7 +8,8 @@ import { applicationDefault, getApps, initializeApp } from 'firebase-admin/app'
 import { FieldValue, getFirestore } from 'firebase-admin/firestore'
 
 const QR_PREFIX = 'TOKAI2026:1:'
-const REQUIRED_COLUMNS = ['mentorId', 'name', 'generation', 'imageUrl']
+const REQUIRED_COLUMNS = ['mentorId', 'name', 'generation', 'iconUrl', 'imageUrl']
+const RESET_CONFIRMATION = 'RESET_EVENT'
 
 function usage() {
   return [
@@ -16,6 +17,7 @@ function usage() {
     '  pnpm admin:bootstrap -- --input ./data/mentors.xlsx --dry-run',
     '  pnpm admin:bootstrap -- --input ./data/mentors.xlsx --apply',
     '  pnpm admin:bootstrap -- --unassign syokora --apply',
+    `  pnpm admin:bootstrap -- --reset-event --apply --confirm ${RESET_CONFIRMATION}`,
   ].join('\n')
 }
 
@@ -30,6 +32,8 @@ function parseArgs(args) {
     dryRun: args.includes('--dry-run'),
     apply: args.includes('--apply'),
     unassign: valueAfter('--unassign'),
+    resetEvent: args.includes('--reset-event'),
+    confirm: valueAfter('--confirm'),
   }
 }
 
@@ -48,6 +52,19 @@ function createQrId() {
   return randomBytes(24).toString('base64url')
 }
 
+function isHttpsUrl(value) {
+  try {
+    return new URL(value).protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function collectionEpochFromConfig(data) {
+  const value = data?.collectionEpoch
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : 1
+}
+
 function validateRows(rows) {
   const errors = []
   const ids = new Set()
@@ -56,12 +73,8 @@ function validateRows(rows) {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(row.mentorId)) errors.push(`${row.rowNumber}行目: mentorId は半角英数字・ハイフン・アンダースコアで入力してください。`)
     if (!row.name) errors.push(`${row.rowNumber}行目: name は必須です。`)
     if (!row.generation) errors.push(`${row.rowNumber}行目: generation は必須です。`)
-    try {
-      const url = new URL(row.imageUrl)
-      if (url.protocol !== 'https:') throw new Error()
-    } catch {
-      errors.push(`${row.rowNumber}行目: imageUrl は https:// で始まるURLを入力してください。`)
-    }
+    if (!isHttpsUrl(row.iconUrl)) errors.push(`${row.rowNumber}行目: iconUrl は https:// で始まるURLを入力してください。`)
+    if (!isHttpsUrl(row.imageUrl)) errors.push(`${row.rowNumber}行目: imageUrl は https:// で始まるURLを入力してください。`)
     if (ids.has(row.mentorId)) errors.push(`${row.rowNumber}行目: mentorId「${row.mentorId}」が重複しています。`)
     ids.add(row.mentorId)
   }
@@ -84,7 +97,7 @@ async function readMentors(inputPath) {
       break
     }
   }
-  if (!headerRowNumber) throw new Error(`mentorId, name, generation, imageUrl を含む見出し行が見つかりません。`)
+  if (!headerRowNumber) throw new Error(`mentorId, name, generation, iconUrl, imageUrl を含む見出し行が見つかりません。`)
 
   const rows = []
   let dataRowsStarted = false
@@ -105,6 +118,7 @@ async function readMentors(inputPath) {
       mentorId: record.mentorId,
       name: record.name,
       generation: record.generation,
+      iconUrl: record.iconUrl,
       imageUrl: record.imageUrl,
     })
   }
@@ -174,13 +188,13 @@ async function applyRows(rows, qrIds, database) {
   const operations = [
     ...(config.exists ? [] : [{
       path: 'appConfig/settings',
-      data: { isAllOpen: false },
+      data: { isAllOpen: false, collectionEpoch: 1 },
       merge: false,
     }]),
     ...rows.map((row) => (
       {
         path: `mentors/${row.mentorId}`,
-        data: { name: row.name, generation: row.generation, imageUrl: row.imageUrl },
+        data: { name: row.name, generation: row.generation, iconUrl: row.iconUrl, imageUrl: row.imageUrl },
         merge: false,
       }
     )),
@@ -218,10 +232,50 @@ async function unassignMentor(mentorId, database) {
   return qrId
 }
 
+async function resetEvent(database) {
+  const [qrCodes, bindings, deviceSetups, config] = await Promise.all([
+    database.collection('qrCodes').get(),
+    database.collection('mentorQrBindings').get(),
+    database.collection('deviceSetups').get(),
+    database.doc('appConfig/settings').get(),
+  ])
+  const documents = [...qrCodes.docs, ...bindings.docs, ...deviceSetups.docs]
+  const nextEpoch = collectionEpochFromConfig(config.data()) + 1
+  const operations = [
+    { type: 'setConfig', reference: database.doc('appConfig/settings') },
+    ...documents.map((reference) => ({ type: 'delete', reference })),
+  ]
+
+  for (let index = 0; index < operations.length; index += 400) {
+    const batch = database.batch()
+    for (const operation of operations.slice(index, index + 400)) {
+      if (operation.type === 'setConfig') {
+        batch.set(operation.reference, { isAllOpen: false, collectionEpoch: nextEpoch }, { merge: true })
+      } else {
+        batch.delete(operation.reference)
+      }
+    }
+    await batch.commit()
+  }
+
+  return { qrCodes: qrCodes.size, bindings: bindings.size, deviceSetups: deviceSetups.size, collectionEpoch: nextEpoch }
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2))
   if (!options.apply && !options.dryRun) throw new Error(`${usage()}\n\n--dry-run または --apply のどちらかを指定してください。`)
   if (options.apply && options.dryRun) throw new Error('--dry-run と --apply は同時に指定できません。')
+  if (options.unassign && options.resetEvent) throw new Error('--unassign と --reset-event は同時に指定できません。')
+
+  if (options.resetEvent) {
+    if (!options.apply) throw new Error('--reset-event は --apply と一緒に指定してください。')
+    if (options.confirm !== RESET_CONFIRMATION) {
+      throw new Error(`全リセットを実行するには --confirm ${RESET_CONFIRMATION} を指定してください。`)
+    }
+    const result = await resetEvent(initializeAdmin())
+    console.log(`全リセット完了: qrCodes ${result.qrCodes}件、mentorQrBindings ${result.bindings}件、deviceSetups ${result.deviceSetups}件を削除、collectionEpoch を ${result.collectionEpoch} に更新しました。`)
+    return
+  }
 
   if (options.unassign) {
     if (!options.apply) throw new Error('--unassign は --apply と一緒に指定してください。')

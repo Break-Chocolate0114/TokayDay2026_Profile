@@ -6,9 +6,10 @@ const mentorFromData = (id: string, data: Record<string, unknown>): Mentor | nul
   const name = typeof data.name === 'string' ? data.name.trim() : ''
   const generation = typeof data.generation === 'string' ? data.generation.trim() : ''
   const imageUrl = typeof data.imageUrl === 'string' ? data.imageUrl.trim() : ''
+  const iconUrl = typeof data.iconUrl === 'string' && data.iconUrl.trim() ? data.iconUrl.trim() : imageUrl
 
   if (!id || !name || !generation || !imageUrl) return null
-  return { id, name, generation, imageUrl }
+  return { id, name, generation, iconUrl, imageUrl }
 }
 
 /** Firestore の mentors コレクションをすべて取得します。ドキュメントIDを mentor ID として使用します。 */
@@ -31,11 +32,17 @@ export async function fetchMentor(id: string): Promise<Mentor | null> {
   return snapshot.exists() ? mentorFromData(snapshot.id, snapshot.data()) : null
 }
 
-/** appConfig/settings の isAllOpen を読みます。未作成時は安全側で false です。 */
+/** appConfig/settings の公開状態と獲得履歴の世代番号を読みます。 */
 export async function fetchAppConfig(): Promise<AppConfig> {
-  if (!isFirebaseConfigured || !db) return { isAllOpen: false }
+  if (!isFirebaseConfigured || !db) return { isAllOpen: false, collectionEpoch: 1 }
 
   const snapshot = await getDoc(doc(db, 'appConfig', 'settings'))
-  const value = snapshot.data()?.isAllOpen
-  return { isAllOpen: value === true }
+  const data = snapshot.data()
+  const collectionEpoch = data?.collectionEpoch
+  return {
+    isAllOpen: data?.isAllOpen === true,
+    collectionEpoch: typeof collectionEpoch === 'number' && Number.isSafeInteger(collectionEpoch) && collectionEpoch > 0
+      ? collectionEpoch
+      : 1,
+  }
 }
