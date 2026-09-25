@@ -18,6 +18,8 @@ const REQUIRED_COLUMNS = ['mentorId', 'name', 'generation']
 const RESET_CONFIRMATION = 'RESET_EVENT'
 const DEFAULT_IMAGES_DIRECTORY = 'data/Images'
 const SUPPORTED_IMAGE_EXTENSIONS = new Set(['.avif', '.gif', '.jpeg', '.jpg', '.png', '.webp'])
+// プロフィール帳の共通レイアウト（幅2000px基準）における、上中央の写真枠。
+const PROFILE_PHOTO_CROP = { x: 760, y: 100, width: 200, height: 200 }
 
 function usage() {
   return [
@@ -535,10 +537,14 @@ function createOpaqueImagePublicId(folder, kind) {
 }
 
 function transformedImageUrl(secureUrl, kind) {
-  const transformation = kind === 'icon'
-    // プロフィール画像の上中央を残して正方形アイコンにする。元画像は加工・複製しない。
-    ? 'f_auto,q_auto,c_fill,g_north,w_256,h_256'
-    : 'f_auto,q_auto,c_limit,w_1200'
+  if (kind === 'icon') {
+    // 元画像の幅を統一してから、プロフィール帳上中央の写真枠だけを切り出して拡大する。
+    // Cloudinaryの配信時変換なので、切り抜き済みファイルを別途保存しない。
+    const { x, y, width, height } = PROFILE_PHOTO_CROP
+    const transformation = `c_scale,w_2000/c_crop,x_${x},y_${y},w_${width},h_${height}/c_scale,w_256,h_256/f_auto,q_auto`
+    return secureUrl.replace('/upload/', `/upload/${transformation}/`)
+  }
+  const transformation = 'f_auto,q_auto,c_limit,w_1200'
   return secureUrl.replace('/upload/', `/upload/${transformation}/`)
 }
 
@@ -562,7 +568,7 @@ async function resolveMentorImages(rows, assignments, database) {
     let imagePublicId = savedText(existing.imagePublicId)
 
     if (assignment?.profileFile) {
-      // プロフィール画像を1枚だけ保存し、一覧アイコンは同じ画像の上中央トリミングURLで自動生成する。
+      // プロフィール画像を1枚だけ保存し、一覧アイコンは同じ画像の上中央にある写真枠を切り出して自動生成する。
       // 画像の公開IDには氏名やmentorIdを含めない。次回以降は保存済みのランダムIDへ上書きする。
       const publicId = imagePublicId || iconPublicId || createOpaqueImagePublicId(cloudinaryFolder, 'profiles')
       const url = await uploadMentorImage(assignment.profileFile, publicId)
