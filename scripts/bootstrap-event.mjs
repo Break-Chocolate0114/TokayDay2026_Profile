@@ -395,7 +395,9 @@ async function writeGeneratedMentorsSheet(inputPath, targetSheetName, selection)
   const headers = ['mentorId', 'name', 'generation', 'isOpenFromStart', '選定理由', '参加アンケート回答']
   sheet.addRow(headers)
   for (const row of selection.rows) {
-    sheet.addRow([row.mentorId, row.name, row.generation, row.isOpenFromStart, row.reason, row.surveyAnswer])
+    // 空文字列を共有文字列として保存すると、一部のプレビューで内部インデックスが表示される。
+    // 回答がないセルは明示的に空セルとして出力する。
+    sheet.addRow([row.mentorId, row.name, row.generation, row.isOpenFromStart, row.reason, row.surveyAnswer || null])
   }
 
   const headerRow = sheet.getRow(3)
