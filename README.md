@@ -202,14 +202,12 @@ pnpm admin:bootstrap -- --generate-mentors --input ./data/mentors.xlsx --apply
 data/
   mentors.xlsx
   Images/
-    icon/
-      ショコラ.jpg           # 一覧の顔アイコン用
     profile/
-      ショコラ.png            # 獲得時の大きな画像用
+      ショコラ.png            # 大きなプロフィール表示と一覧アイコンの共通元画像
 ```
 
-- `icon` / `avatar` / `アイコン` を含むフォルダの画像は一覧用の `iconUrl` になる。
-- `profile` / `プロフィール` を含むフォルダの画像は大きく表示する `imageUrl` になる。プロフィール画像しかない場合は、同じ画像を自動で一覧アイコンにも使う。
+- 新規運用では `profile` / `プロフィール` フォルダへプロフィール画像を1枚だけ置く。大きく表示する `imageUrl` と、**上中央を正方形に切り抜く**一覧用 `iconUrl` をCloudinaryの変換URLで自動作成・登録する。元画像やアイコン用の複製ファイルは増えない。
+- `icon` / `avatar` / `アイコン` フォルダの画像は、プロフィール画像がない旧データだけの互換用として扱う。プロフィール画像がある場合は、そちらから自動生成したアイコンを優先する。
 - フォルダで区別するため、ファイル名へ `_icon` や `_profile` を付ける必要はない。ファイル名には対応するメンターの表示名を、`_`・半角スペース・ハイフンで区切られた独立した要素として含める（例: `18_現役_むむむ - 橋本莉穂.png`）。別メンター名の一部に偶然含まれる誤一致を防ぐため。
 - 同じメンター・同じ種別の画像が複数ある場合、または1枚の画像が複数のメンター名に一致する場合は、誤登録防止のためコマンドを止める。
 - Excelにいない名前を含む画像は**警告して今回の反映から除外**する。複数画像の誤一致だけは安全のためエラーにする。
@@ -261,7 +259,7 @@ pnpm admin:bootstrap -- --input ./data/mentors.xlsx --apply
 1回のコマンドで次を行います。
 
 1. `data/Images/` を再帰的に走査し、フォルダ種別とファイル名からメンターを判定する。
-2. 対応画像をCloudinaryへ署名付きアップロードする。Cloudinary内では `tokai-profile-book/icons/{ランダム文字列}` と `tokai-profile-book/profiles/{ランダム文字列}` に格納され、氏名・mentorIdは公開IDに含まれない。再反映は同じランダムIDを上書きする。
+2. 対応するプロフィール画像をCloudinaryへ署名付きアップロードする。Cloudinary内では `tokai-profile-book/profiles/{ランダム文字列}` に格納され、氏名・mentorIdは公開IDに含まれない。上中央を切り抜いた正方形アイコンは同じ元画像から配信時に作られ、再反映は同じランダムIDを上書きする。
 3. CloudinaryのHTTPS URL、公開ID、`isOpenFromStart` を `mentors` へ保存する。
 4. `qrInventory`、初回の `appConfig/settings` を作成・更新する。
 5. `admin-output/qr-codes.xlsx` と `admin-output/qr-images/` を出力する。
@@ -288,9 +286,26 @@ pnpm admin:bootstrap -- --issue-entry-qr --event-url "https://GitHubユーザー
 
 ## 4. イベント運用
 
-### 顔アイコン・プロフィール画像を更新する
+### 管理操作クイック一覧
 
-1. `data/Images/icon/` または `data/Images/profile/` の該当画像を新しいファイルに差し替える。
+ここでは、このチャットへ依頼できる操作と、管理者PCで同じことを実行するコマンドをまとめます。Firestoreを変更する操作には、事前に `GOOGLE_APPLICATION_CREDENTIALS` の設定が必要です。
+
+| やりたいこと | このチャットへの依頼例 | 管理者PCのコマンド | 変更範囲 |
+| --- | --- | --- | --- |
+| アンケート・画像から対象者一覧を作る | 「アンケートと画像からメンター一覧を更新して」 | `pnpm admin:bootstrap -- --generate-mentors --input ./data/mentors.xlsx --apply` | Excelの `Mentors` タブだけ |
+| 一覧・画像をCloudinary/Firestoreへ反映 | 「メンター一覧と画像を反映して」 | `pnpm admin:bootstrap -- --input ./data/mentors.xlsx --apply` | 画像、現行メンター、QR在庫 |
+| プロフィール画像を更新 | 「○○のプロフィール画像を更新して反映して」 | 上と同じ | 同じ画像の上中央アイコンも更新 |
+| 全員公開をON | 「全員公開モードにして」 | `pnpm admin:bootstrap -- --set-all-open true --apply` | `isAllOpen` のみ |
+| 全員公開をOFF | 「全員公開モードを解除して」 | `pnpm admin:bootstrap -- --set-all-open false --apply` | `isAllOpen` のみ |
+| 1名のQR紐付けを解除 | 「syokoraのQR紐付けを解除して」 | `pnpm admin:bootstrap -- --unassign syokora --apply` | その人のQR・端末紐付けのみ |
+| 本番前に全QR紐付けをリセット | 「本番前の全リセットを実行して」 | `pnpm admin:bootstrap -- --reset-event --apply --confirm RESET_EVENT` | 全メンターQR紐付け・端末設定・入場権を削除 |
+| 会場入場QRを3枚発行 | 「会場入場QRを3枚発行して」 | `pnpm admin:bootstrap -- --issue-entry-qr --event-url "https://GitHubユーザー名.github.io/リポジトリ名/" --copies 3 --apply` | 入場コード、QR PNG、URLテキスト |
+
+通常は管理コマンドを手元で実行せず、目的をこのチャットへ伝えるだけで大丈夫です。全リセットだけは元に戻せないため、実行前に対象を確認します。
+
+### プロフィール画像・顔アイコンを更新する
+
+1. `data/Images/profile/` の該当画像を新しいファイルに差し替える。
 2. ファイル名には対応するメンターの表示名を含める（例: `ショコラ.jpg`）。ファイル名の接尾辞は不要。
 3. 同じ反映コマンドを実行する。
 
@@ -298,7 +313,7 @@ pnpm admin:bootstrap -- --issue-entry-qr --event-url "https://GitHubユーザー
 pnpm admin:bootstrap -- --input ./data/mentors.xlsx --apply
 ```
 
-`mentorId` は変更しないでください。既存のQR紐付けと獲得履歴を残したまま、画像だけを更新できます。画像ファイルを置かずに反映すると、既存画像URLを維持します。
+`mentorId` は変更しないでください。既存のQR紐付けと獲得履歴を残したまま、画像だけを更新できます。Cloudinaryはプロフィール画像の**上中央**を256×256の正方形アイコンとして配信します。画像ファイルを置かずに反映すると、既存画像URLを維持します。
 
 ### 当日不参加のメンターを最初から公開・非公開にする
 
@@ -339,7 +354,15 @@ pnpm admin:bootstrap -- --reset-event --apply --confirm RESET_EVENT
 
 ### イベント終了後に全開放する
 
-Firebaseコンソールの `appConfig/settings` で `isAllOpen` をbooleanの `true` に変更します。参加者が再読み込みすると、獲得履歴に関係なく全プロフィールがカラー表示され、タップ可能になります。
+```bash
+pnpm admin:bootstrap -- --set-all-open true --apply
+```
+
+参加者が再読み込みすると、獲得履歴に関係なく全プロフィールがカラー表示され、タップ可能になります。通常表示へ戻す場合は次を実行します。
+
+```bash
+pnpm admin:bootstrap -- --set-all-open false --apply
+```
 
 ## 注意事項
 

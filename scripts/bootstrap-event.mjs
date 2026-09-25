@@ -27,6 +27,8 @@ function usage() {
     '  pnpm admin:bootstrap -- --input ./data/mentors.xlsx --dry-run --images-dir ./data/Images',
     '  pnpm admin:bootstrap -- --input ./data/mentors.xlsx --apply --images-dir ./data/Images',
     '  pnpm admin:bootstrap -- --unassign syokora --apply',
+    '  pnpm admin:bootstrap -- --set-all-open true --apply',
+    '  pnpm admin:bootstrap -- --set-all-open false --apply',
     `  pnpm admin:bootstrap -- --reset-event --apply --confirm ${RESET_CONFIRMATION}`,
     '  pnpm admin:bootstrap -- --issue-entry-qr --event-url https://example.github.io/repository/ --copies 3 --apply',
     '  pnpm admin:bootstrap -- --save-entry-url --apply  # EVENT_ACCESS_QR_URL を一時的に指定',
@@ -49,6 +51,7 @@ function parseArgs(args) {
     surveySheet: valueAfter('--survey-sheet') ?? '参加アンケート回答者',
     targetSheet: valueAfter('--target-sheet') ?? 'Mentors',
     unassign: valueAfter('--unassign'),
+    setAllOpen: valueAfter('--set-all-open'),
     resetEvent: args.includes('--reset-event'),
     issueEntryQr: args.includes('--issue-entry-qr'),
     saveEntryUrl: args.includes('--save-entry-url'),
@@ -533,7 +536,8 @@ function createOpaqueImagePublicId(folder, kind) {
 
 function transformedImageUrl(secureUrl, kind) {
   const transformation = kind === 'icon'
-    ? 'f_auto,q_auto,c_fill,w_256,h_256'
+    // プロフィール画像の上中央を残して正方形アイコンにする。元画像は加工・複製しない。
+    ? 'f_auto,q_auto,c_fill,g_north,w_256,h_256'
     : 'f_auto,q_auto,c_limit,w_1200'
   return secureUrl.replace('/upload/', `/upload/${transformation}/`)
 }
@@ -557,10 +561,11 @@ async function resolveMentorImages(rows, assignments, database) {
     let iconPublicId = savedText(existing.iconPublicId)
     let imagePublicId = savedText(existing.imagePublicId)
 
-    if (assignment?.iconFile && assignment.iconFile === assignment.profileFile) {
+    if (assignment?.profileFile) {
+      // プロフィール画像を1枚だけ保存し、一覧アイコンは同じ画像の上中央トリミングURLで自動生成する。
       // 画像の公開IDには氏名やmentorIdを含めない。次回以降は保存済みのランダムIDへ上書きする。
       const publicId = imagePublicId || iconPublicId || createOpaqueImagePublicId(cloudinaryFolder, 'profiles')
-      const url = await uploadMentorImage(assignment.iconFile, publicId)
+      const url = await uploadMentorImage(assignment.profileFile, publicId)
       iconUrl = transformedImageUrl(url, 'icon')
       imageUrl = transformedImageUrl(url, 'profile')
       iconPublicId = publicId
@@ -570,11 +575,6 @@ async function resolveMentorImages(rows, assignments, database) {
         const publicId = iconPublicId || createOpaqueImagePublicId(cloudinaryFolder, 'icons')
         iconUrl = transformedImageUrl(await uploadMentorImage(assignment.iconFile, publicId), 'icon')
         iconPublicId = publicId
-      }
-      if (assignment?.profileFile) {
-        const publicId = imagePublicId || createOpaqueImagePublicId(cloudinaryFolder, 'profiles')
-        imageUrl = transformedImageUrl(await uploadMentorImage(assignment.profileFile, publicId), 'profile')
-        imagePublicId = publicId
       }
     }
 
@@ -592,7 +592,7 @@ async function resolveMentorImages(rows, assignments, database) {
       imageUrl,
       iconPublicId,
       imagePublicId,
-      uploadedIconFile: assignment?.iconFile ?? null,
+      uploadedIconFile: assignment?.profileFile ? null : assignment?.iconFile ?? null,
       uploadedProfileFile: assignment?.profileFile ?? null,
     })
   }
@@ -739,6 +739,15 @@ async function unassignMentor(mentorId, database) {
   return qrId
 }
 
+async function setAllOpen(isAllOpen, database) {
+  const configReference = database.doc('appConfig/settings')
+  const config = await configReference.get()
+  await configReference.set({
+    isAllOpen,
+    ...(config.exists ? {} : { collectionEpoch: 1 }),
+  }, { merge: true })
+}
+
 async function resetEvent(database) {
   const [qrCodes, bindings, deviceSetups, eventAccessCodes, eventAccessGrants, config] = await Promise.all([
     database.collection('qrCodes').get(),
@@ -815,8 +824,8 @@ async function main() {
   const options = parseArgs(process.argv.slice(2))
   if (!options.apply && !options.dryRun) throw new Error(`${usage()}\n\n--dry-run または --apply のどちらかを指定してください。`)
   if (options.apply && options.dryRun) throw new Error('--dry-run と --apply は同時に指定できません。')
-  const specialOperations = [options.unassign, options.resetEvent, options.issueEntryQr, options.saveEntryUrl, options.generateMentors].filter(Boolean).length
-  if (specialOperations > 1) throw new Error('--unassign、--reset-event、--issue-entry-qr、--save-entry-url、--generate-mentors は同時に指定できません。')
+  const specialOperations = [options.unassign, options.setAllOpen, options.resetEvent, options.issueEntryQr, options.saveEntryUrl, options.generateMentors].filter(Boolean).length
+  if (specialOperations > 1) throw new Error('--unassign、--set-all-open、--reset-event、--issue-entry-qr、--save-entry-url、--generate-mentors は同時に指定できません。')
 
   if (options.generateMentors) {
     if (!options.input) throw new Error(`${usage()}\n\n--generate-mentors には --input を指定してください。`)
@@ -855,6 +864,15 @@ async function main() {
     const database = initializeAdmin()
     const qrId = await unassignMentor(options.unassign, database)
     console.log(`解除しました: ${options.unassign} ← ${qrId}`)
+    return
+  }
+
+  if (options.setAllOpen !== undefined) {
+    if (!options.apply) throw new Error('--set-all-open は --apply と一緒に指定してください。')
+    const parsed = parseIsOpenFromStart(options.setAllOpen)
+    if (parsed.error) throw new Error('--set-all-open には true または false を指定してください。')
+    await setAllOpen(parsed.value, initializeAdmin())
+    console.log(`全員公開モードを ${parsed.value ? 'ON' : 'OFF'} にしました。`)
     return
   }
 
