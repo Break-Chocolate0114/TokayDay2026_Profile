@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore'
 import { db, isFirebaseConfigured } from './firebase'
 import type { AppConfig, Mentor } from '../types'
 
@@ -7,9 +7,12 @@ const mentorFromData = (id: string, data: Record<string, unknown>): Mentor | nul
   const generation = typeof data.generation === 'string' ? data.generation.trim() : ''
   const imageUrl = typeof data.imageUrl === 'string' ? data.imageUrl.trim() : ''
   const iconUrl = typeof data.iconUrl === 'string' && data.iconUrl.trim() ? data.iconUrl.trim() : imageUrl
+  const isOpenFromStart = data.isOpenFromStart === true
 
-  if (!id || !name || !generation || !imageUrl) return null
-  return { id, name, generation, iconUrl, imageUrl }
+  // Excel の Mentors タブで反映した現行メンターだけを表示する。
+  // 以前のイベントで作成されたドキュメントを削除せずに一覧から除外できる。
+  if (!id || !name || !generation || data.active !== true) return null
+  return { id, name, generation, iconUrl, imageUrl, isOpenFromStart }
 }
 
 /** Firestore の mentors コレクションをすべて取得します。ドキュメントIDを mentor ID として使用します。 */
@@ -18,7 +21,7 @@ export async function fetchMentors(): Promise<Mentor[]> {
     throw new Error('Firebase の環境変数が設定されていません。')
   }
 
-  const snapshot = await getDocs(collection(db, 'mentors'))
+  const snapshot = await getDocs(query(collection(db, 'mentors'), where('active', '==', true)))
   return snapshot.docs
     .map((item) => mentorFromData(item.id, item.data()))
     .filter((mentor): mentor is Mentor => mentor !== null)

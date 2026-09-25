@@ -30,7 +30,11 @@ export default function ProfileModal({ mentor, onClose }: ProfileModalProps) {
         <p className="modal-kicker">PROFILE GET!</p>
         <h2 id="profile-modal-title">{mentor.name}</h2>
         <p className="modal-generation">{mentor.generation}</p>
-        <img className="profile-image" src={mentor.imageUrl} alt={`${mentor.name}のプロフィール`} />
+        {mentor.imageUrl ? (
+          <img className="profile-image" src={mentor.imageUrl} alt={`${mentor.name}のプロフィール`} />
+        ) : (
+          <p className="missing-profile-image">プロフィール画像は準備中です♡</p>
+        )}
         <button className="close-button" type="button" onClick={onClose}>とじる</button>
       </section>
     </div>

@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // 注意: 管理者用のExcel取込は Firebase Admin SDK を使うため、このルールを通りません。
-// 参加者ブラウザには、必要最小限の読み取りと「初回QR登録」の作成だけを許可します。
+// 参加者ブラウザは、会場の入場QRで匿名UIDごとの入場権を作成した後だけ利用できます。
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
@@ -12,8 +12,21 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
+    function eventCodeIsActive(codeHash) {
+      return codeHash is string
+        && exists(/databases/$(database)/documents/eventAccessCodes/$(codeHash))
+        && get(/databases/$(database)/documents/eventAccessCodes/$(codeHash)).data.active == true;
+    }
+
+    function hasEventAccess() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/eventAccessGrants/$(request.auth.uid))
+        && eventCodeIsActive(get(/databases/$(database)/documents/eventAccessGrants/$(request.auth.uid)).data.codeHash);
+    }
+
     function mentorExists(mentorId) {
-      return exists(/databases/$(database)/documents/mentors/$(mentorId));
+      return exists(/databases/$(database)/documents/mentors/$(mentorId))
+        && get(/databases/$(database)/documents/mentors/$(mentorId)).data.active == true;
     }
 
     // qrInventory はクライアントから読めません。QRに印刷されたランダムIDを知る人だけが
@@ -43,13 +56,33 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/mentorQrBindings/$(mentorId)).data.registeredByUid == uid;
     }
 
+    // 入場QRの生コードは保存せず、SHA-256ハッシュだけをドキュメントIDにする。
+    // getだけ許可し、一覧取得は不許可なので、コードを知らない匿名UIDは試行できない。
+    match /eventAccessCodes/{codeHash} {
+      allow get: if signedIn();
+      allow list, write: if false;
+    }
+
+    // 自分の匿名UIDにだけ、既存かつ有効な入場コードを使った入場権を一度だけ作成できる。
+    match /eventAccessGrants/{uid} {
+      allow get: if ownsDevice(uid);
+      allow list: if false;
+      allow create: if ownsDevice(uid)
+        && request.resource.data.keys().hasOnly(['codeHash', 'grantedAt'])
+        && request.resource.data.keys().hasAll(['codeHash', 'grantedAt'])
+        && request.resource.data.codeHash is string
+        && request.resource.data.grantedAt == request.time
+        && eventCodeIsActive(request.resource.data.codeHash);
+      allow update, delete: if false;
+    }
+
     match /mentors/{mentorId} {
-      allow read: if true;
+      allow read: if hasEventAccess();
       allow write: if false;
     }
 
     match /appConfig/settings {
-      allow read: if true;
+      allow read: if hasEventAccess();
       allow write: if false;
     }
 
@@ -58,11 +91,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // QRを読んだ時にだけ、匿名認証済みクライアントが対応するメンターを1件取得できます。
+    // QRを読んだ時にだけ、入場済みかつ匿名認証済みクライアントが対応するメンターを1件取得できます。
     match /qrCodes/{qrId} {
-      allow get: if signedIn();
+      allow get: if hasEventAccess();
       allow list: if false;
-      allow create: if signedIn()
+      allow create: if hasEventAccess()
         && request.resource.data.keys().hasOnly(['mentorId', 'registeredByUid', 'registeredAt'])
         && request.resource.data.keys().hasAll(['mentorId', 'registeredByUid', 'registeredAt'])
         && request.resource.data.mentorId is string
@@ -78,7 +111,7 @@ service cloud.firestore {
     // メンターが複数のQRを登録できないよう、mentorIdをキーにした逆引きも同時作成します。
     match /mentorQrBindings/{mentorId} {
       allow read: if false;
-      allow create: if signedIn()
+      allow create: if hasEventAccess()
         && request.resource.data.keys().hasOnly(['qrId', 'registeredByUid', 'registeredAt'])
         && request.resource.data.keys().hasAll(['qrId', 'registeredByUid', 'registeredAt'])
         && request.resource.data.qrId is string
@@ -92,11 +125,12 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // 端末の初期設定はUID本人が一度だけ作れます。以後の変更・削除は禁止です。
+    // 端末の初期設定は入場済みUID本人が一度だけ作れます。以後の変更・削除は禁止です。
     match /deviceSetups/{uid} {
-      allow get: if ownsDevice(uid);
+      allow get: if ownsDevice(uid) && hasEventAccess();
       allow list: if false;
       allow create: if ownsDevice(uid)
+        && hasEventAccess()
         && (
           (
             request.resource.data.keys().hasOnly(['ownerType', 'createdAt'])

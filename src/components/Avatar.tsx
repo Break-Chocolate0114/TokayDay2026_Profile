@@ -20,10 +20,10 @@ export default function Avatar({ mentor, unlocked, onClick }: AvatarProps) {
       aria-label={unlocked ? `${mentor.name}のプロフィールを開く` : `${mentor.name}は未獲得`}
     >
       <span className="avatar-frame" aria-hidden="true">
-        {!imageFailed ? (
+        {mentor.iconUrl && !imageFailed ? (
           <img src={mentor.iconUrl} alt="" onError={() => setImageFailed(true)} />
         ) : (
-          <span className="avatar-fallback">?</span>
+          <span className="avatar-fallback">●</span>
         )}
         {!unlocked && <span className="lock-mark">?</span>}
       </span>

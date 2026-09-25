@@ -1,9 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import DeviceSetupModal from './components/DeviceSetupModal'
+import EventAccessGate from './components/EventAccessGate'
 import MentorSection from './components/MentorSection'
 import ProfileModal from './components/ProfileModal'
 import { ensureAnonymousUser } from './lib/auth'
 import { addCollectedId, loadCollectedIds } from './lib/collection'
+import { grantEventAccess, hasActiveEventAccess, readEventAccessCodeFromUrl, removeEventAccessCodeFromUrl } from './lib/eventAccess'
 import { fetchAppConfig, fetchMentors } from './lib/mentors'
 import { parseQrId } from './lib/qr'
 import { fetchDeviceSetup, fetchMentorFromQr, registerMentorQr, registerOtherDevice } from './lib/setup'
@@ -11,7 +13,8 @@ import type { DeviceSetup, Mentor } from './types'
 
 const QrScannerModal = lazy(() => import('./components/QrScannerModal'))
 
-const GENERATION_ORDER = ['OB・OG', 'OB', 'OG', '13期', '14期', '15期', '16期', '17期', '18期']
+const CURRENT_GENERATIONS = ['13期', '14期', '15期', '16期', '17期', '18期']
+const GENERATION_ORDER = [...CURRENT_GENERATIONS, 'OB・OG']
 
 function generationRank(generation: string) {
   const index = GENERATION_ORDER.indexOf(generation)
@@ -19,7 +22,7 @@ function generationRank(generation: string) {
 }
 
 function displayGeneration(generation: string) {
-  return generation === 'OB' || generation === 'OG' ? 'OB・OG' : generation
+  return CURRENT_GENERATIONS.includes(generation) ? generation : 'OB・OG'
 }
 
 type ScannerMode = 'collect' | 'register' | null
@@ -36,6 +39,8 @@ export default function App() {
   const [scannerMode, setScannerMode] = useState<ScannerMode>(null)
   const [notice, setNotice] = useState('「QRを読み取る」を押して、メンターさんのQRをカメラに映してね！')
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [requiresEventAccess, setRequiresEventAccess] = useState(false)
+  const [eventAccessError, setEventAccessError] = useState<string | null>(null)
   const [setupError, setSetupError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSettingUp, setIsSettingUp] = useState(false)
@@ -46,14 +51,37 @@ export default function App() {
     async function load() {
       try {
         const user = await ensureAnonymousUser()
+        const accessCode = readEventAccessCodeFromUrl()
+        let hasEventAccess = await hasActiveEventAccess(user.uid)
+
+        if (hasEventAccess && accessCode) removeEventAccessCodeFromUrl()
+        if (!hasEventAccess && accessCode) {
+          const granted = await grantEventAccess(user.uid, accessCode)
+          if (!granted) {
+            if (active) {
+              setRequiresEventAccess(true)
+              setEventAccessError('この入場QRは無効になっています。会場の最新の入場QRを読み取ってください。')
+            }
+            return
+          }
+          hasEventAccess = true
+        }
+
+        if (!hasEventAccess) {
+          if (active) setRequiresEventAccess(true)
+          return
+        }
+
         const [loadedMentors, config, savedSetup] = await Promise.all([
           fetchMentors(),
           fetchAppConfig(),
           fetchDeviceSetup(user.uid),
         ])
         if (!active) return
+        setRequiresEventAccess(false)
+        setEventAccessError(null)
         setUid(user.uid)
-        setMentors(loadedMentors.sort((a, b) => generationRank(a.generation) - generationRank(b.generation) || a.name.localeCompare(b.name, 'ja')))
+        setMentors(loadedMentors.sort((a, b) => generationRank(displayGeneration(a.generation)) - generationRank(displayGeneration(b.generation)) || a.name.localeCompare(b.name, 'ja')))
         setIsAllOpen(config.isAllOpen)
         setCollectionEpoch(config.collectionEpoch)
         setCollectedIds(loadCollectedIds(config.collectionEpoch))
@@ -81,8 +109,12 @@ export default function App() {
     return [...groups.entries()].sort(([a], [b]) => generationRank(a) - generationRank(b))
   }, [mentors])
 
-  const unlockedCount = mentors.filter((mentor) => isAllOpen || collectedIds.has(mentor.id)).length
-  const isUnlocked = (id: string) => isAllOpen || collectedIds.has(id)
+  const initiallyOpenMentorIds = useMemo(
+    () => new Set(mentors.filter((mentor) => mentor.isOpenFromStart).map((mentor) => mentor.id)),
+    [mentors],
+  )
+  const isUnlocked = (id: string) => isAllOpen || initiallyOpenMentorIds.has(id) || collectedIds.has(id)
+  const unlockedCount = mentors.filter((mentor) => isUnlocked(mentor.id)).length
 
   const handleOtherSetup = useCallback(async () => {
     if (!uid) return
@@ -153,6 +185,8 @@ export default function App() {
           onRead: readQrForCollection,
         }
       : null
+
+  if (!isLoading && requiresEventAccess) return <EventAccessGate message={eventAccessError ?? undefined} />
 
   return (
     <main className="app-shell">

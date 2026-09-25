@@ -6,8 +6,12 @@ dist/
 .firebaserc
 service-account*.json
 firebase-service-account*.json
+*-firebase-adminsdk-*.json
 gha-creds-*.json
 admin-output/
 data/*.xlsx
 !data/mentors.template.xlsx
+data/mentor-images/
+data/Images/
 *.log
+*.pdf
