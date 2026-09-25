@@ -19,7 +19,8 @@ const RESET_CONFIRMATION = 'RESET_EVENT'
 const DEFAULT_IMAGES_DIRECTORY = 'data/Images'
 const SUPPORTED_IMAGE_EXTENSIONS = new Set(['.avif', '.gif', '.jpeg', '.jpg', '.png', '.webp'])
 // プロフィール帳の共通レイアウト（幅2000px基準）における、上中央の写真枠。
-const PROFILE_PHOTO_CROP = { x: 760, y: 100, width: 200, height: 200 }
+// 1.25倍ズーム。写真枠の装飾ではなく、顔と肩まわりを一覧アイコンに大きく表示する。
+const PROFILE_PHOTO_CROP = { x: 780, y: 120, width: 160, height: 160 }
 
 function usage() {
   return [
